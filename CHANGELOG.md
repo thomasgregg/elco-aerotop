@@ -2,6 +2,17 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.2.14
+
+- Add four read-only diagnostic sensors for BSB line **7000 – Message**: maintenance code 1,
+  priority 1, maintenance code 2, and priority 2.
+- Use controller-internal address `327836`, verified from the authenticated Remocon BSB menu's
+  structured metadata, and parse the returned multi-field JSON response by field name with a
+  verified positional fallback.
+- Isolate the maintenance datapoint in its own BSB discovery request so a controller timeout does
+  not affect other heating-circuit or heat-pump values. Runtime polling remains JSON-only and does
+  not scrape the website.
+
 ## 0.2.13
 
 - Stop querying the Galevo-only `menuItems` API when `Features` reports controller system type 5

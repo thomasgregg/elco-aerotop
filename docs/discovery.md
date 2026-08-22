@@ -19,6 +19,8 @@ Home Assistant diagnostics contain:
 - metering, maintenance, and controller-error responses;
 - values returned for allowlisted heating-circuit and Aerotop BSB datapoints, queried in isolated
   JSON API groups;
+- the four fields returned by BSB line 7000 at verified internal address `327836`, queried in its
+  own isolated read-only group;
 - a probe-status map showing `available`, `partially_available`, or an unavailable error class; and
 - a `response_schema` inventory of every observed JSON path and Python value type.
 

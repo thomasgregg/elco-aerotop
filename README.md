@@ -110,6 +110,10 @@ require the current value, limits, or allowed options needed to send a validated
 | Plant location | `sensor.<device>_plant_location` | Diagnostic | — | Address and locality configured for the plant. |
 | Gateway firmware | `sensor.<device>_gateway_firmware` | Diagnostic | — | Gateway firmware version. |
 | Controller error count | `sensor.<device>_controller_error_count` | Diagnostic | — | Number of current records returned by the controller-error API. |
+| Maintenance code 1 | `sensor.<device>_maintenance_code_1` | Diagnostic | — | Primary BSB line 7000 maintenance code and controller-provided description. |
+| Maintenance priority 1 | `sensor.<device>_maintenance_priority_1` | Diagnostic | — | Priority associated with the primary maintenance message. |
+| Maintenance code 2 | `sensor.<device>_maintenance_code_2` | Diagnostic | — | Secondary simultaneous BSB line 7000 maintenance code and description. |
+| Maintenance priority 2 | `sensor.<device>_maintenance_priority_2` | Diagnostic | — | Priority associated with the secondary maintenance message. |
 | Heating circuit pressure | `sensor.<device>_heating_circuit_pressure` | Plant | bar | System pressure from the read-only system-data endpoint. |
 | Heating circuit flow temperature | `sensor.<device>_heating_circuit_flow_temperature` | Plant | °C | Current primary heating-flow temperature. |
 | Heating circuit flow setpoint temperature | `sensor.<device>_heating_circuit_flow_setpoint_temperature` | Plant | °C | Current primary heating-flow target. |
@@ -248,13 +252,12 @@ maintenance actions, or metering commands. See [`docs/discovery.md`](docs/discov
 capture and fixture workflow.
 
 The earlier add-on's “maintenance code” values came from the BSB **7000 – Message** menu, not from
-the Remocon maintenance API. The four displayed fields are two simultaneous maintenance-code and
-priority pairs. The add-on obtained them by scraping the rendered website and therefore did not
-contain the controller-internal JSON address needed here. This integration will not scrape that
-page or guess an address. It now captures the full native BSB plant snapshot, all returned menu
-items, the cloud maintenance response, and current bus-error records so the structured source can
-be identified from real diagnostics. The dedicated maintenance entities will be added once that
-address and its multi-field response are verified.
+the Remocon maintenance API. An authenticated protocol inspection verified controller-internal
+address `327836` and its four-field JSON response: maintenance code 1, priority 1, maintenance code
+2, and priority 2. These values are exposed as read-only diagnostic sensors. The address is read in
+its own discovery group so a controller timeout cannot affect other BSB values. Runtime operation
+uses only the structured `ReadDataPoints` JSON endpoint; the integration does not scrape the
+website.
 
 Remocon's mobile `menuItems` endpoint is not a substitute on Aerotop/BSB plants. It is used by the
 Galevo controller family and returns HTTP 500 for valid, individually token-authenticated IDs when

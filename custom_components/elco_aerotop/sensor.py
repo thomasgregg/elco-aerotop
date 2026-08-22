@@ -15,7 +15,13 @@ from .capabilities import supports_cooling, supports_room_sensor
 from .const import BSB_ENTITY_ADDRESSES
 from .coordinator import ElcoDataUpdateCoordinator
 from .entity import ElcoAerotopEntity
-from .models import ElcoData, NumericVariable, bsb_point_available, bsb_point_value
+from .models import (
+    ElcoData,
+    NumericVariable,
+    bsb_point_available,
+    bsb_point_field_value,
+    bsb_point_value,
+)
 
 
 class ElcoSensor(ElcoAerotopEntity, SensorEntity):
@@ -398,6 +404,28 @@ async def async_setup_entry(
                 entity_category=EntityCategory.DIAGNOSTIC,
                 available_fn=lambda state, bsb_address=address: _bsb_available(state, bsb_address),
                 enabled_default=False,
+            )
+        )
+
+    maintenance_address = BSB_ENTITY_ADDRESSES["7000_maintenance_message"]
+    for field_index, (key_suffix, field_name) in enumerate(
+        (
+            ("code_1", "Maintenance code 1"),
+            ("priority_1", "Maintenance priority 1"),
+            ("code_2", "Maintenance code 2"),
+            ("priority_2", "Maintenance priority 2"),
+        )
+    ):
+        entities.append(
+            ElcoSensor(
+                coordinator,
+                f"maintenance_{key_suffix}",
+                field_name,
+                lambda state, label=field_name, index=field_index: bsb_point_field_value(
+                    state.discovery.bsb_points.get(maintenance_address), label, index
+                ),
+                entity_category=EntityCategory.DIAGNOSTIC,
+                available_fn=lambda state: _bsb_available(state, maintenance_address),
             )
         )
 

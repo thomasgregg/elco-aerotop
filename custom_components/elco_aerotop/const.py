@@ -10,7 +10,7 @@ DEFAULT_BASE_URL: Final = "https://www.remocon-net.remotethermo.com"
 DEFAULT_SCAN_INTERVAL: Final = 300
 MIN_SCAN_INTERVAL: Final = 60
 REQUEST_TIMEOUT: Final = 30
-USER_AGENT: Final = "ELCO-Aerotop-Home-Assistant/0.2.13"
+USER_AGENT: Final = "ELCO-Aerotop-Home-Assistant/0.2.14"
 
 CONF_BASE_URL: Final = "base_url"
 CONF_GATEWAY_ID: Final = "gateway_id"
@@ -37,6 +37,9 @@ BUS_ERRORS_PATH: Final = "/api/v2/busErrors?gatewayId={gateway_id}&blockingOnly=
 BSB_READ_PATH: Final = "/R2/PlantMenuBsb/ReadDataPoints/{gateway_id}?addresses={addresses}"
 
 BSB_ENTITY_ADDRESSES: Final = {
+    # Verified from the authenticated Remocon BSB menu's structured accordion
+    # metadata for line 7000 (Service/special operation > Message).
+    "7000_maintenance_message": "327836",
     "700": "2950516",
     "710": "2950542",
     "712": "2950544",
@@ -72,6 +75,9 @@ BSB_DISCOVERY_GROUPS: Final = {
     "plant_pressure": (BSB_ENTITY_ADDRESSES["heating_circuit_pressure"],),
     "plant_auxiliary_2950542": (BSB_ENTITY_ADDRESSES["710"],),
     "plant_auxiliary_328993": ("328993",),
+    # Keep the multi-field maintenance read isolated so a controller timeout
+    # cannot suppress otherwise healthy BSB datapoints.
+    "maintenance_message": (BSB_ENTITY_ADDRESSES["7000_maintenance_message"],),
     "heat_pump": (
         BSB_ENTITY_ADDRESSES["heat_pump_flow_temperature"],
         BSB_ENTITY_ADDRESSES["heat_pump_return_temperature"],

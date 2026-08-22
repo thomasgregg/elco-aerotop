@@ -92,6 +92,35 @@ def bsb_point_value(point: Any) -> Any:
     return value
 
 
+def bsb_point_field_value(point: Any, name: str, index: int) -> Any:
+    """Return a named value from a multi-field BSB datapoint.
+
+    Remocon currently returns line 7000 as an ordered ``fields`` array.  Name
+    matching is preferred so the integration remains correct if field order
+    changes; the verified field position is retained as a tolerant fallback.
+    """
+    if not isinstance(point, dict):
+        return None
+    fields = point.get("fields")
+    if not isinstance(fields, list):
+        return None
+
+    normalized_name = " ".join(name.casefold().split())
+    for item in fields:
+        if not isinstance(item, dict):
+            continue
+        field_name = item.get("name", item.get("label"))
+        if (
+            isinstance(field_name, str)
+            and " ".join(field_name.casefold().split()) == normalized_name
+        ):
+            return bsb_point_value(item)
+
+    if 0 <= index < len(fields) and isinstance(fields[index], dict):
+        return bsb_point_value(fields[index])
+    return None
+
+
 def bsb_point_available(point: Any) -> bool:
     """Return whether Remocon reports a currently readable BSB datapoint."""
     if not isinstance(point, dict):

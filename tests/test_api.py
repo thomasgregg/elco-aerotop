@@ -122,14 +122,14 @@ async def test_login_uses_antiforgery_cookie_and_json_credentials() -> None:
     await client.async_login()
 
     assert session.cookie_jar.cookies["__formRequestVerificationToken"] == "token-123"
-    assert session.calls[0][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.13")
+    assert session.calls[0][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.14")
     assert session.calls[1][2]["json"] == {
         "email": "user@example.com",
         "password": "secret",
         "rememberMe": False,
         "language": "English_Gb",
     }
-    assert session.calls[1][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.13")
+    assert session.calls[1][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.14")
     assert session.calls[0][2]["timeout"].total == 30
 
 
@@ -218,7 +218,8 @@ async def test_read_only_endpoint_families_accept_their_payload_shapes() -> None
 
     assert "/timeProgs/GATEWAY/ChZn1?umsys=si" in session.calls[2][1]
     assert session.calls[3][2]["json"] == {"features": {}, "hasCooling": False}
-    assert "addresses=2950516,2950542,2950544,2950546" in session.calls[-1][1]
+    assert "addresses=327836,2950516,2950542,2950544,2950546" in session.calls[-1][1]
+    assert "327836" in session.calls[-1][1]
     assert "340067" in session.calls[-1][1]
     assert "5834029" in session.calls[-1][1]
 

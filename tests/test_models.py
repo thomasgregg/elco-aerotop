@@ -13,6 +13,7 @@ from custom_components.elco_aerotop.models import (
     ReadOnlyDiscovery,
     ZoneState,
     bsb_point_available,
+    bsb_point_field_value,
     bsb_point_value,
 )
 
@@ -196,6 +197,29 @@ def test_bsb_missing_value_is_unknown_not_unavailable() -> None:
     assert bsb_point_value(point) is None
 
 
+def test_bsb_maintenance_message_fields_are_read_by_name_with_index_fallback() -> None:
+    point = {
+        "address": "327836",
+        "fields": [
+            {"name": "Maintenance code 1", "valueAsString": "0:No maintenance required"},
+            {"name": "Maintenance priority 1", "value": 0},
+            {"label": "Maintenance code 2", "textualValue": "0:No maintenance required"},
+            {"valueAsNumber": 0},
+        ],
+    }
+
+    assert (
+        bsb_point_field_value(point, "Maintenance code 1", 0)
+        == "0:No maintenance required"
+    )
+    assert bsb_point_field_value(point, "Maintenance priority 1", 1) == 0
+    assert (
+        bsb_point_field_value(point, "Maintenance code 2", 2)
+        == "0:No maintenance required"
+    )
+    assert bsb_point_field_value(point, "Maintenance priority 2", 3) == 0
+
+
 def test_parse_current_bsb_holiday_fields_and_flags() -> None:
     fixture = json.loads((Path(__file__).parent / "fixtures" / "bsb_holidays.json").read_text())
     raw = fixture["holidays"][0]
@@ -231,6 +255,8 @@ def test_parse_legacy_bsb_holiday_fields() -> None:
 
 
 def test_heating_setpoint_addresses_match_live_controller_values() -> None:
+    assert BSB_ENTITY_ADDRESSES["7000_maintenance_message"] == "327836"
     assert BSB_ENTITY_ADDRESSES["710"] == "2950542"
     assert BSB_ENTITY_ADDRESSES["712"] == "2950544"
     assert BSB_DISCOVERY_GROUPS["plant_auxiliary_2950542"] == ("2950542",)
+    assert BSB_DISCOVERY_GROUPS["maintenance_message"] == ("327836",)
