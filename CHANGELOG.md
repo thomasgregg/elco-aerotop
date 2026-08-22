@@ -4,6 +4,13 @@ All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
 ## Unreleased
 
+## 0.3.8
+
+- Classify all writable comfort and reduced setpoints as Home Assistant temperature numbers while
+  preserving their existing entity IDs and writable `number` domain.
+- Classify heating and cooling flow offsets as temperature differences instead of absolute
+  temperatures.
+
 ## 0.3.7
 
 - Add an enabled diagnostic **Last successful update** timestamp that advances after every

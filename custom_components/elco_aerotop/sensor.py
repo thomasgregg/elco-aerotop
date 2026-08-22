@@ -39,6 +39,7 @@ class ElcoSensor(ElcoAerotopEntity, SensorEntity):
         value_fn: Callable[[ElcoData], date | datetime | float | int | str | None],
         *,
         temperature: bool = False,
+        temperature_delta: bool = False,
         pressure: bool = False,
         entity_category: EntityCategory | None = None,
         measurement: bool = False,
@@ -56,6 +57,10 @@ class ElcoSensor(ElcoAerotopEntity, SensorEntity):
         self._attr_entity_registry_enabled_default = enabled_default
         if temperature:
             self._attr_device_class = SensorDeviceClass.TEMPERATURE
+            self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+            self._attr_state_class = SensorStateClass.MEASUREMENT
+        elif temperature_delta:
+            self._attr_device_class = SensorDeviceClass.TEMPERATURE_DELTA
             self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
             self._attr_state_class = SensorStateClass.MEASUREMENT
         elif pressure:
@@ -559,6 +564,7 @@ async def async_setup_entry(
         ):
             if not _has_system_item(data, item_id, zone_number):
                 continue
+            is_temperature_delta = key_suffix.endswith("_offset")
             entities.append(
                 ElcoSensor(
                     coordinator,
@@ -567,7 +573,8 @@ async def async_setup_entry(
                     lambda state, source=item_id, zone_id=zone_number: _as_number(
                         state.discovery.system_value(source, zone_id)
                     ),
-                    temperature=True,
+                    temperature=not is_temperature_delta,
+                    temperature_delta=is_temperature_delta,
                     entity_category=entity_category,
                     enabled_default=enabled_default,
                 )

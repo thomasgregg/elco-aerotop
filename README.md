@@ -237,6 +237,9 @@ The native and advanced controls are two views of those same validated values:
 | Water-heater operation/on/off | DHW mode | DHW comfort and reduced temperatures |
 | Advanced number/select | Its corresponding value above | Same companions as the native entity |
 
+All writable temperature numbers declare Home Assistant's temperature device class and native
+degrees Celsius unit, enabling correct temperature semantics and configured-unit conversion.
+
 The integration deliberately does not expose an arbitrary BSB-address write service. New writable
 parameters should only be added after their request shape and controller behavior have been
 captured and tested.

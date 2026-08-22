@@ -130,7 +130,8 @@ disabled. Reduced values remain enabled because neither native model has a separ
 Both representations share one coordinator write path; changing one updates the other after the
 post-command refresh without sending a second command.
 
-Numbers use Remocon minimum, maximum, and step values when available. The integration rejects a
+Temperature numbers declare Home Assistant's temperature device class and native degrees Celsius
+unit. They use Remocon minimum, maximum, and step values when available. The integration rejects a
 comfort temperature below its related reduced temperature and preserves unchanged setpoints/modes.
 
 ## Operational sensors
@@ -183,6 +184,9 @@ merely because Home Assistant displays them under Configuration.
 | Zone `<zone>` holiday operating level | `sensor.<device>_zone_<zone>_holiday_operating_level` | Enabled | Reduced/Frost-protection choice is returned |
 | Zone `<zone>` heating flow offset | `sensor.<device>_zone_<zone>_heating_flow_offset` | Disabled | Zone system-data item is usable |
 | Zone `<zone>` cooling flow offset | `sensor.<device>_zone_<zone>_cooling_flow_offset` | Disabled | Zone system-data item is usable |
+
+Flow offsets use Home Assistant's temperature-difference device class; all other values in this
+table that represent temperatures use the absolute-temperature device class.
 
 ## Holiday calendars
 
