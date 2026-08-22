@@ -218,7 +218,7 @@ probes these non-mutating endpoint families:
 | Controller errors | Read-only bus-error response | Approximately hourly |
 | BSB | Allowlisted heating-circuit and Aerotop temperature/pressure datapoints, read in independent JSON API groups | Approximately hourly |
 | Native BSB plant snapshot | Complete plant, zone, capability, holiday, and setpoint response used by Remocon mobile clients | Approximately hourly |
-| Mobile menu items | Supported service values from IDs 119–130 plus feature-selected VMC, SLP, hybrid, heat-pump, and cascade/BMS catalog families | Approximately hourly |
+| Mobile menu items | Supported service values from IDs 119–130 plus feature-selected VMC, SLP, hybrid, heat-pump, and cascade/BMS catalog families on non-BSB controller families | Approximately hourly |
 
 Each optional family has an independent availability result. Core state and fast metadata load in
 the config-entry setup path; controller-bus, schedule, metering, maintenance, and broad mobile-API
@@ -255,6 +255,11 @@ page or guess an address. It now captures the full native BSB plant snapshot, al
 items, the cloud maintenance response, and current bus-error records so the structured source can
 be identified from real diagnostics. The dedicated maintenance entities will be added once that
 address and its multi-field response are verified.
+
+Remocon's mobile `menuItems` endpoint is not a substitute on Aerotop/BSB plants. It is used by the
+Galevo controller family and returns HTTP 500 for valid, individually token-authenticated IDs when
+`Features` reports BSB system type 5. The integration records that family as unsupported instead of
+repeatedly sending requests that cannot succeed.
 
 ## Installation
 

@@ -72,9 +72,14 @@ The cloud maintenance endpoint and the controller's BSB `7000 – Message` group
 sources. BSB maintenance-code entities require verified internal datapoint IDs; the integration
 does not infer them from the visible line number.
 
-The menu-item IDs are a bounded mobile-API catalog, not raw BSB addresses. The API omits values a
-gateway does not support. Capturing the returned set is therefore safe capability discovery; it
-does not authorize a matching write or prove that an absent feature can be enabled.
+The menu-item IDs are a bounded mobile-API catalog, not raw BSB addresses. Reads are made one ID at
+a time because some controller families reject an unsupported ID rather than omitting it. Capturing
+successful results is read-only capability discovery; it does not authorize a matching write or
+prove that an absent feature can be enabled.
+
+`menuItems` belongs to the Galevo controller family. When `Features` reports `systemType: 5` (BSB),
+the integration skips that family and records `unsupported:bsb_system`; BSB discovery continues
+through `bsbPlantData` and the reviewed `PlantMenuBsb/ReadDataPoints` allowlist.
 
 ## Writing state
 

@@ -120,6 +120,17 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
             item_ids.extend(MENU_ITEM_CASCADE_IDS)
         return tuple(item_ids)
 
+    def _system_type(self) -> int | None:
+        """Return the controller family reported by the Features response."""
+        response = self.api.last_features_response
+        data = response.get("data") if isinstance(response, dict) else None
+        plant = data.get("plant") if isinstance(data, dict) else None
+        system_type = plant.get("systemType") if isinstance(plant, dict) else None
+        try:
+            return int(system_type) if system_type is not None else None
+        except (TypeError, ValueError):
+            return None
+
     async def _async_refresh_core_discovery(
         self,
         data: ElcoData,
@@ -229,23 +240,26 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
                 status,
             )
             menu_items: dict[str, dict[str, Any]] = {}
-            available_menu_items = 0
-            menu_item_ids = self._menu_item_ids()
-            for item_id in menu_item_ids:
-                returned_items = await self._async_optional_probe(
-                    f"menu_item:{item_id}",
-                    self.api.async_get_menu_items((item_id,)),
-                    status,
-                )
-                if isinstance(returned_items, dict):
-                    menu_items.update(returned_items)
-                    available_menu_items += 1
-            if available_menu_items == len(menu_item_ids):
-                status["menu_items"] = "available"
-            elif available_menu_items:
-                status["menu_items"] = "partially_available"
+            if self._system_type() == 5:
+                status["menu_items"] = "unsupported:bsb_system"
             else:
-                status["menu_items"] = "unavailable"
+                available_menu_items = 0
+                menu_item_ids = self._menu_item_ids()
+                for item_id in menu_item_ids:
+                    returned_items = await self._async_optional_probe(
+                        f"menu_item:{item_id}",
+                        self.api.async_get_menu_items((item_id,)),
+                        status,
+                    )
+                    if isinstance(returned_items, dict):
+                        menu_items.update(returned_items)
+                        available_menu_items += 1
+                if available_menu_items == len(menu_item_ids):
+                    status["menu_items"] = "available"
+                elif available_menu_items:
+                    status["menu_items"] = "partially_available"
+                else:
+                    status["menu_items"] = "unavailable"
 
             self._slow_discovery = replace(
                 base,

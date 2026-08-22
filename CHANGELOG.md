@@ -2,6 +2,14 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.2.13
+
+- Stop querying the Galevo-only `menuItems` API when `Features` reports controller system type 5
+  (BSB). Live v0.2.12 diagnostics and the upstream client architecture confirmed that valid,
+  individually token-authenticated menu IDs are not implemented for BSB plants.
+- Report `unsupported:bsb_system` explicitly while retaining the complete native BSB plant
+  snapshot, allowlisted BSB datapoints, system items, and error history.
+
 ## 0.2.12
 
 - Read mobile menu items one at a time after live token-authenticated requests proved that one
