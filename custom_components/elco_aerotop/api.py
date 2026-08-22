@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from copy import deepcopy
 from html import unescape
 from typing import Any
 
@@ -485,25 +486,23 @@ class ElcoApiClient:
         if allowed_modes and mode not in allowed_modes:
             raise ValueError(f"Unsupported zone mode: {mode}")
 
-        dhw_comfort = plant.dhw_comfort_temperature.value
-        dhw_reduced = plant.dhw_reduced_temperature.value
-        dhw_mode = plant.dhw_mode.value
-        if dhw_comfort is None or dhw_reduced is None or dhw_mode is None:
-            raise ValueError("Remocon did not return the plant values required for a mode write")
+        plant_data = deepcopy(plant.raw)
+        zone_data = deepcopy(zone.raw)
+        plant_data.setdefault("gatewayId", self.gateway_id)
+        zone_data.setdefault("gatewayId", self.gateway_id)
+        zone_data["zone"] = zone.number
+        raw_mode = zone_data.get("mode")
+        if not isinstance(raw_mode, dict):
+            raw_mode = {}
+            zone_data["mode"] = raw_mode
+        raw_mode["value"] = mode
 
         await self._request_json(
             "POST",
             SET_DATA_PATH.format(gateway_id=self.gateway_id),
             body={
-                "plantData": {
-                    "dhwComfortTemp": {"value": dhw_comfort},
-                    "dhwReducedTemp": {"value": dhw_reduced},
-                    "dhwMode": {"value": dhw_mode},
-                },
-                "zoneData": {
-                    "zone": zone.number,
-                    "mode": {"value": mode},
-                },
+                "plantData": plant_data,
+                "zoneData": zone_data,
                 "viewModel": {"zoneNumber": zone.number},
             },
         )

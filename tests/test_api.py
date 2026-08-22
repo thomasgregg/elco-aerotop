@@ -94,6 +94,17 @@ def get_data_payload() -> dict[str, Any]:
                 },
             },
             "zoneData": {
+                "holidays": [
+                    {
+                        "index": 0,
+                        "fromAsIso": "2027-08-30T00:00:00+02:00",
+                        "toAsIso": "2027-09-04T00:00:00+02:00",
+                        "added": False,
+                        "changed": False,
+                        "deleted": False,
+                        "osv": False,
+                    }
+                ],
                 "mode": {"value": 1, "allowedOptions": [0, 1, 2, 3]},
                 "chComfortTemp": {"value": 21, "min": 10, "max": 30, "step": 0.5},
                 "chReducedTemp": {"value": 17, "min": 10, "max": 30, "step": 0.5},
@@ -111,14 +122,14 @@ async def test_login_uses_antiforgery_cookie_and_json_credentials() -> None:
     await client.async_login()
 
     assert session.cookie_jar.cookies["__formRequestVerificationToken"] == "token-123"
-    assert session.calls[0][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.6")
+    assert session.calls[0][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.7")
     assert session.calls[1][2]["json"] == {
         "email": "user@example.com",
         "password": "secret",
         "rememberMe": False,
         "language": "English_Gb",
     }
-    assert session.calls[1][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.6")
+    assert session.calls[1][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.7")
     assert session.calls[0][2]["timeout"].total == 30
 
 
@@ -207,7 +218,7 @@ async def test_read_only_endpoint_families_accept_their_payload_shapes() -> None
 
     assert "/timeProgs/GATEWAY/ChZn1?umsys=si" in session.calls[2][1]
     assert session.calls[3][2]["json"] == {"features": {}, "hasCooling": False}
-    assert "addresses=2950516,2950544,2950565,2950546" in session.calls[-1][1]
+    assert "addresses=2950516,2950542,2950544,2950546" in session.calls[-1][1]
     assert "340067" in session.calls[-1][1]
     assert "5834029" in session.calls[-1][1]
 
@@ -317,7 +328,7 @@ async def test_dhw_write_preserves_full_plant_state() -> None:
 
 
 @pytest.mark.asyncio
-async def test_zone_mode_write_uses_minimal_set_data_payload() -> None:
+async def test_zone_mode_write_preserves_complete_set_data_payload() -> None:
     session = FakeSession(
         [
             *login_responses(),
@@ -331,12 +342,15 @@ async def test_zone_mode_write_uses_minimal_set_data_payload() -> None:
     await client.async_set_zone_mode(data.plant, data.zones[1], mode=2)
 
     request_body = session.calls[-1][2]["json"]
-    assert request_body == {
-        "plantData": {
-            "dhwComfortTemp": {"value": 52},
-            "dhwReducedTemp": {"value": 45},
-            "dhwMode": {"value": 1},
-        },
-        "zoneData": {"zone": 1, "mode": {"value": 2}},
-        "viewModel": {"zoneNumber": 1},
+    assert request_body["plantData"] == {
+        **data.plant.raw,
+        "gatewayId": "GATEWAY",
     }
+    assert request_body["zoneData"] == {
+        **data.zones[1].raw,
+        "gatewayId": "GATEWAY",
+        "zone": 1,
+        "mode": {"value": 2, "allowedOptions": [0, 1, 2, 3]},
+    }
+    assert request_body["zoneData"]["holidays"] == data.zones[1].raw["holidays"]
+    assert request_body["viewModel"] == {"zoneNumber": 1}

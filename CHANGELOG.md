@@ -2,6 +2,24 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.2.7
+
+- Add a read-only Home Assistant calendar for each zone's controller-backed BSB holiday periods,
+  including tolerant parsing of current and older Remocon date fields.
+- Expose the per-zone holiday operating level and convert ELCO's inclusive final holiday day to
+  Home Assistant's exclusive calendar end.
+- Keep known BSB and capability-backed heat-pump entities registered while their current datapoint
+  is out of service, marking them unavailable until a later successful read.
+- Keep holiday-temperature entities registered when Remocon returns its inactive zero placeholder;
+  their state remains unknown until the controller supplies an effective holiday temperature.
+- Treat a returned datapoint without a value as unknown rather than unsupported.
+- Correct the internal BSB mapping for heating-circuit lines 710 and 712 using the gateway values
+  and ELCO controller documentation.
+- Preserve the complete fresh plant and zone payload, including holiday fields, when changing a
+  zone mode. Holiday create/update/delete writes remain disabled pending real round-trip fixtures.
+- Disable overlapping low-level BSB 700–730 diagnostic sensors by default for new installations;
+  normal number/select controls remain the primary entities.
+
 ## 0.2.6
 
 - Treat BSB datapoints marked `osv` (out of service), failed, or carrying a bus/communication

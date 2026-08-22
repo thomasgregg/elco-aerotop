@@ -91,10 +91,12 @@ All entities are grouped under a device named `ELCO Aerotop <gateway ID>`. Home 
 the final entity ID from the device and entity name, and users may rename it. The patterns below
 therefore use `<device>` and `<zone>` placeholders.
 
-Entity creation is capability-driven. An entity is created only when the initial gateway response
-contains the source value it needs. Consequently, two Aerotop installations can expose different
-entity sets even when they run the same integration version. Writable entities also require the
-current value, limits, or allowed options needed to send a validated command.
+Entity creation is capability-driven. Stable plant, zone, and heat-pump entities are created when
+the gateway advertises the relevant capability, even when a particular reading is temporarily out
+of service. Such entities remain in Home Assistant and become available automatically when Remocon
+starts returning a valid value. Features explicitly reported as unsupported are omitted, so two
+Aerotop installations can still expose different entity sets. Writable entities additionally
+require the current value, limits, or allowed options needed to send a validated command.
 
 ### Sensors
 
@@ -119,6 +121,7 @@ current value, limits, or allowed options needed to send a validated command.
 | Zone `<zone>` cooling protection temperature | `sensor.<device>_zone_<zone>_cooling_protection_temperature` | Per zone | °C | Cooling protection target. |
 | Zone `<zone>` heating holiday temperature | `sensor.<device>_zone_<zone>_heating_holiday_temperature` | Per zone | °C | Heating target used during holidays. |
 | Zone `<zone>` cooling holiday temperature | `sensor.<device>_zone_<zone>_cooling_holiday_temperature` | Per zone | °C | Cooling target used during holidays. |
+| Zone `<zone>` holiday operating level | `sensor.<device>_zone_<zone>_holiday_operating_level` | Per zone | — | Whether BSB holiday periods use Frost protection or Reduced operation. |
 | Zone `<zone>` heating flow temperature | `sensor.<device>_zone_<zone>_heating_flow_temperature` | Per zone | °C | Zone heating-flow value from read-only system data. |
 | Zone `<zone>` heating flow offset | `sensor.<device>_zone_<zone>_heating_flow_offset` | Per zone | °C | Zone heating-flow correction. |
 | Zone `<zone>` cooling flow temperature | `sensor.<device>_zone_<zone>_cooling_flow_temperature` | Per zone | °C | Zone cooling-flow value from read-only system data. |
@@ -138,6 +141,26 @@ current value, limits, or allowed options needed to send a validated command.
 | Hot gas temperature | `sensor.<device>_hot_gas_temperature` | BSB | °C | Heat-pump hot-gas temperature. |
 
 Temperature sensors use Home Assistant's `temperature` device class and `measurement` state class.
+The low-level BSB 700/710/712/714/720/730 sensors are diagnostic entities and are disabled by
+default for new installations because their mode and setpoint values overlap the normal select and
+number controls. They remain available for controller troubleshooting and cross-checking.
+
+### Holiday calendars
+
+| Entity name | Typical entity ID pattern | Scope | Access | Description |
+|---|---|---:|---|---|
+| Zone `<zone>` holidays | `calendar.<device>_zone_<zone>_holidays` | Per zone | Read-only | All valid BSB holiday periods returned in `zoneData.holidays`. The calendar is on while a holiday period is active and exposes upcoming periods to calendar automations. |
+
+Remocon represents BSB holidays as per-zone periods with an index, start and end dates, and
+out-of-service/change flags. ELCO treats the configured final day as part of the holiday, while Home
+Assistant calendar ends are exclusive; the integration performs that one-day conversion. Deleted
+or out-of-service periods are not shown. The operating level is exposed separately because it is a
+zone-wide choice shared by the periods.
+
+Holiday editing is intentionally not enabled yet. The Remocon write operation sends the complete
+plant and zone state and also forces the zone to Automatic mode. Read support is therefore kept
+separate until create, update, and delete operations have been verified on a real populated gateway
+response. No holiday data is obtained by website scraping.
 
 ### Binary sensors
 
@@ -200,9 +223,10 @@ groups are isolated so one rejected group cannot discard values from supported g
 discovery responses are not exposed wholesale as entity attributes, which avoids oversized Home
 Assistant states and accidental identifier leaks.
 
-BSB datapoints flagged by Remocon as out of service, failed, or carrying a bus/communication error
-are not exposed as entities. Enum datapoints use the labels supplied by Remocon instead of raw
-numeric codes.
+Known BSB entities remain registered when Remocon flags a datapoint as out of service, failed, or
+carrying a bus/communication error. Home Assistant marks the entity unavailable for that snapshot
+and restores it when a later BSB read succeeds. A returned datapoint with no current value is shown
+as unknown. Enum datapoints use the labels supplied by Remocon instead of raw numeric codes.
 
 Discovery is strictly read-only. It does not add generic BSB writing, schedule editing,
 maintenance actions, or metering commands. See [`docs/discovery.md`](docs/discovery.md) for the

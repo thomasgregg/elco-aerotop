@@ -1,7 +1,13 @@
 """Tests for tolerant Remocon data parsing."""
 
+import json
+from datetime import date
+from pathlib import Path
+
 from custom_components.elco_aerotop.capabilities import supports_cooling, supports_room_sensor
+from custom_components.elco_aerotop.const import BSB_DISCOVERY_GROUPS, BSB_ENTITY_ADDRESSES
 from custom_components.elco_aerotop.models import (
+    BsbHoliday,
     NumericVariable,
     PlantState,
     ReadOnlyDiscovery,
@@ -139,6 +145,12 @@ def test_capability_checks_accept_real_cooling_values() -> None:
     assert supports_cooling({}, zone) is True
 
 
+def test_room_sensor_capability_does_not_require_a_setup_time_reading() -> None:
+    zone = ZoneState.parse(1, {"hasRoomSensor": True, "roomTemp": None})
+
+    assert supports_room_sensor(zone) is True
+
+
 def test_bsb_enum_value_uses_server_label() -> None:
     point = {
         "valueAsNumber": 1.0,
@@ -168,3 +180,57 @@ def test_bsb_out_of_service_value_is_unavailable() -> None:
     }
 
     assert bsb_point_available(point) is False
+
+
+def test_bsb_missing_value_is_unknown_not_unavailable() -> None:
+    point = {
+        "valueAsNumber": None,
+        "osv": False,
+        "anyError": False,
+        "deviceFailure": False,
+        "bsbErrorCode": 0,
+        "commErrorCode": 0,
+    }
+
+    assert bsb_point_available(point) is True
+    assert bsb_point_value(point) is None
+
+
+def test_parse_current_bsb_holiday_fields_and_flags() -> None:
+    fixture = json.loads((Path(__file__).parent / "fixtures" / "bsb_holidays.json").read_text())
+    raw = fixture["holidays"][0]
+    raw["index"] = 3
+    raw["changed"] = True
+    holiday = BsbHoliday.parse(raw)
+
+    assert holiday is not None
+    assert holiday.index == 3
+    assert holiday.start == date(2027, 8, 30)
+    assert holiday.end == date(2027, 9, 4)
+    assert holiday.changed is True
+
+
+def test_parse_legacy_bsb_holiday_fields() -> None:
+    zone = ZoneState.parse(
+        1,
+        {
+            "holidays": [
+                {
+                    "index": 0,
+                    "from": "2027-12-20T00:00:00",
+                    "to": "2027-12-27T00:00:00",
+                    "osv": False,
+                }
+            ]
+        },
+    )
+
+    assert len(zone.holidays) == 1
+    assert zone.holidays[0].start == date(2027, 12, 20)
+    assert zone.holidays[0].end == date(2027, 12, 27)
+
+
+def test_heating_setpoint_addresses_match_live_controller_values() -> None:
+    assert BSB_ENTITY_ADDRESSES["710"] == "2950542"
+    assert BSB_ENTITY_ADDRESSES["712"] == "2950544"
+    assert BSB_DISCOVERY_GROUPS["plant_auxiliary_2950542"] == ("2950542",)

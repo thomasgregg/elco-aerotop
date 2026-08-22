@@ -1,8 +1,9 @@
 # Gateway discovery and anonymized fixtures
 
-Remocon's browser-facing API is undocumented and varies by controller, firmware, plant options,
-and account. ELCO Aerotop therefore discovers values from the configured gateway and creates only
-entities backed by values observed during the first coordinator refresh.
+Remocon's JSON API is undocumented and varies by controller, firmware, plant options, and account.
+ELCO Aerotop therefore combines the gateway's feature flags with observed JSON fields. Stable
+capability-backed entities remain registered across temporary out-of-service or missing readings;
+features explicitly reported as unsupported are omitted.
 
 ## Captured data
 
@@ -38,8 +39,16 @@ A contributed diagnostic should be reduced to stable API examples and saved unde
 
 ## Entity and write policy
 
-An entity is added only when its source field or data item exists. The integration does not infer
-support from a model name, invent default values, or expose whole payloads as state attributes.
+Entities backed by an explicit feature flag are added when that capability is advertised. Other
+optional entities require their source field or datapoint to be observed. An explicit BSB
+out-of-service/error flag marks an existing entity unavailable; a successfully returned datapoint
+without a value is represented as unknown. The integration does not invent state values or expose
+whole payloads as state attributes.
+
+BSB holiday periods are parsed from the per-zone `holidays` array and exposed through a read-only
+Home Assistant calendar. Current `fromAsIso`/`toAsIso` and older `from`/`to` field names are
+accepted. Holiday writes remain disabled until populated read/write captures verify index reuse,
+date normalization, and create/update/delete round trips.
 
 Discovery does not authorize writes. A new writable field requires a separately reviewed endpoint
 contract, an anonymized read/write fixture, validation against gateway-provided limits/options,

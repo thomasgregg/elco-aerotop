@@ -20,4 +20,6 @@ def supports_cooling(features: dict[str, Any], zone: ZoneState) -> bool:
 
 def supports_room_sensor(zone: ZoneState) -> bool:
     """Return whether a room value should be exposed."""
-    return zone.has_room_sensor is not False and zone.room_temperature is not None
+    return zone.has_room_sensor is True or (
+        zone.has_room_sensor is not False and zone.room_temperature is not None
+    )

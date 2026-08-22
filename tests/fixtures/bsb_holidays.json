@@ -1,0 +1,16 @@
+{
+  "holidays": [
+    {
+      "index": 0,
+      "fromAsEpoch": 1819576800000,
+      "toAsEpoch": 1820008800000,
+      "fromAsIso": "2027-08-30T00:00:00+02:00",
+      "toAsIso": "2027-09-04T00:00:00+02:00",
+      "added": false,
+      "changed": false,
+      "deleted": false,
+      "osv": false
+    }
+  ],
+  "useReducedOperationModeOnHoliday": false
+}

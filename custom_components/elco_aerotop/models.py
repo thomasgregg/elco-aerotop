@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 
@@ -39,6 +40,36 @@ def _boolean(value: Any) -> bool | None:
     return None
 
 
+def _holiday_date(value: Any) -> date | None:
+    """Parse the date shapes used by current and older BSB holiday responses."""
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        if value == 0:
+            return None
+        seconds = value / 1000 if abs(value) > 100_000_000_000 else value
+        try:
+            return datetime.fromtimestamp(seconds, tz=UTC).date()
+        except (OverflowError, OSError, ValueError):
+            return None
+    if not isinstance(value, str) or not value.strip():
+        return None
+
+    rendered = value.strip()
+    dotnet_epoch = re.fullmatch(r"/Date\((-?\d+)(?:[+-]\d{4})?\)/", rendered)
+    if dotnet_epoch:
+        return _holiday_date(int(dotnet_epoch.group(1)))
+    try:
+        return datetime.fromisoformat(rendered.replace("Z", "+00:00")).date()
+    except ValueError:
+        try:
+            return date.fromisoformat(rendered[:10])
+        except ValueError:
+            return None
+
+
 def bsb_point_value(point: Any) -> Any:
     """Return a BSB value, translating a numeric enum to its server label."""
     if not isinstance(point, dict):
@@ -62,7 +93,7 @@ def bsb_point_value(point: Any) -> Any:
 
 
 def bsb_point_available(point: Any) -> bool:
-    """Return whether Remocon reports a usable BSB datapoint."""
+    """Return whether Remocon reports a currently readable BSB datapoint."""
     if not isinstance(point, dict):
         return False
     if any(point.get(flag) is True for flag in ("osv", "anyError", "deviceFailure")):
@@ -70,7 +101,7 @@ def bsb_point_available(point: Any) -> bool:
     for error_code in ("bsbErrorCode", "commErrorCode"):
         if point.get(error_code) not in (None, 0, "0"):
             return False
-    return bsb_point_value(point) is not None
+    return True
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +196,46 @@ class SelectVariable:
 
 
 @dataclass(frozen=True, slots=True)
+class BsbHoliday:
+    """One controller-backed holiday period for a heating zone."""
+
+    index: int | None
+    start: date
+    end: date
+    added: bool = False
+    changed: bool = False
+    deleted: bool = False
+    out_of_service: bool = False
+
+    @classmethod
+    def parse(cls, raw: Any) -> BsbHoliday | None:
+        """Parse current Remocon and older API holiday field names."""
+        if not isinstance(raw, dict):
+            return None
+
+        def parse_first(*keys: str) -> date | None:
+            for key in keys:
+                if (parsed := _holiday_date(raw.get(key))) is not None:
+                    return parsed
+            return None
+
+        start = parse_first("fromAsIso", "from", "start", "fromAsEpoch")
+        end = parse_first("toAsIso", "to", "end", "toAsEpoch")
+        if start is None or end is None or end < start:
+            return None
+        parsed_index = _number(raw.get("index"))
+        return cls(
+            index=int(parsed_index) if parsed_index is not None else None,
+            start=start,
+            end=end,
+            added=_boolean(raw.get("added")) is True,
+            changed=_boolean(raw.get("changed")) is True,
+            deleted=_boolean(raw.get("deleted")) is True,
+            out_of_service=_boolean(raw.get("osv")) is True,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class PlantState:
     """Plant-level state."""
 
@@ -211,6 +282,7 @@ class ZoneState:
 
     number: int
     raw: dict[str, Any]
+    holidays: tuple[BsbHoliday, ...]
     mode: SelectVariable
     comfort_temperature: NumericVariable
     reduced_temperature: NumericVariable
@@ -234,6 +306,13 @@ class ZoneState:
         return cls(
             number=number,
             raw=raw,
+            holidays=tuple(
+                holiday
+                for item in raw.get("holidays", [])
+                if (holiday := BsbHoliday.parse(item)) is not None
+            )
+            if isinstance(raw.get("holidays"), list)
+            else (),
             mode=SelectVariable.parse(raw.get("mode", {})),
             comfort_temperature=NumericVariable.parse(
                 _first(raw, "chComfortTemp", "chComfTemp", default={})

@@ -32,11 +32,15 @@ class ElcoSensor(ElcoAerotopEntity, SensorEntity):
         pressure: bool = False,
         entity_category: EntityCategory | None = None,
         measurement: bool = False,
+        available_fn: Callable[[ElcoData], bool] | None = None,
+        enabled_default: bool = True,
     ) -> None:
         super().__init__(coordinator, key)
         self._attr_name = name
         self._value_fn = value_fn
+        self._available_fn = available_fn
         self._attr_entity_category = entity_category
+        self._attr_entity_registry_enabled_default = enabled_default
         if temperature:
             self._attr_device_class = SensorDeviceClass.TEMPERATURE
             self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
@@ -51,6 +55,13 @@ class ElcoSensor(ElcoAerotopEntity, SensorEntity):
     @property
     def native_value(self) -> float | int | str | None:
         return self._value_fn(self.coordinator.data)
+
+    @property
+    def available(self) -> bool:
+        """Return dynamic source availability without removing the entity."""
+        return super().available and (
+            self._available_fn(self.coordinator.data) if self._available_fn else True
+        )
 
 
 def _as_number(value: Any) -> float | None:
@@ -80,12 +91,17 @@ def _has_system_item(data: ElcoData, item_id: str, zone: int = 0) -> bool:
     )
 
 
-def _has_bsb_value(data: ElcoData, address: str, *, numeric: bool) -> bool:
-    point = data.discovery.bsb_points.get(address)
-    if not bsb_point_available(point):
-        return False
-    value = _bsb_value(data, address)
-    return _as_number(value) is not None if numeric else value is not None
+def _bsb_available(data: ElcoData, address: str) -> bool:
+    return bsb_point_available(data.discovery.bsb_points.get(address))
+
+
+def _zone_temperature_value(data: ElcoData, zone_number: int, attribute: str) -> float | None:
+    value = getattr(data.zones[zone_number], attribute)
+    if isinstance(value, NumericVariable):
+        value = value.value
+    if attribute.endswith("holiday_temperature") and value == 0:
+        return None
+    return value
 
 
 def _plant_location(data: ElcoData) -> str | None:
@@ -149,7 +165,10 @@ async def async_setup_entry(
             )
         )
 
-    if data.plant.outside_temperature is not None:
+    if (
+        data.plant.outside_temperature is not None
+        or data.plant.has_outside_temperature_probe is True
+    ):
         entities.append(
             ElcoSensor(
                 coordinator,
@@ -159,7 +178,10 @@ async def async_setup_entry(
                 temperature=True,
             )
         )
-    if data.plant.dhw_current_temperature is not None:
+    if (
+        data.plant.dhw_current_temperature is not None
+        or data.plant.has_dhw_temperature_probe is True
+    ):
         entities.append(
             ElcoSensor(
                 coordinator,
@@ -186,7 +208,10 @@ async def async_setup_entry(
         ),
     )
     for item_id, key, name, is_pressure in system_sensor_specs:
-        if _has_system_item(data, item_id):
+        if _has_system_item(data, item_id) or item_id in {
+            "ChFlowTemp",
+            "ChFlowSetpointTemp",
+        }:
             entities.append(
                 ElcoSensor(
                     coordinator,
@@ -269,19 +294,29 @@ async def async_setup_entry(
                 continue
             if field.startswith("cooling_") and not has_cooling:
                 continue
-            if field.endswith("holiday_temperature") and current_value == 0:
-                continue
             entities.append(
                 ElcoSensor(
                     coordinator,
                     f"zone_{zone_number}_{field}",
                     f"Zone {zone_number} {label}",
-                    lambda state, zone_id=zone_number, attribute=field: (
-                        getattr(state.zones[zone_id], attribute).value
-                        if isinstance(getattr(state.zones[zone_id], attribute), NumericVariable)
-                        else getattr(state.zones[zone_id], attribute)
+                    lambda state, zone_id=zone_number, attribute=field: _zone_temperature_value(
+                        state, zone_id, attribute
                     ),
                     temperature=True,
+                )
+            )
+
+        if zone.use_reduced_operation_mode_on_holiday is not None:
+            entities.append(
+                ElcoSensor(
+                    coordinator,
+                    f"zone_{zone_number}_holiday_operating_level",
+                    f"Zone {zone_number} holiday operating level",
+                    lambda state, zone_id=zone_number: (
+                        "Reduced"
+                        if state.zones[zone_id].use_reduced_operation_mode_on_holiday
+                        else "Frost protection"
+                    ),
                 )
             )
 
@@ -345,7 +380,7 @@ async def async_setup_entry(
         ),
     )
     for address, key, name, temperature in bsb_specs:
-        if not _has_bsb_value(data, address, numeric=temperature):
+        if address not in data.discovery.bsb_points and not data.zones:
             continue
         entities.append(
             ElcoSensor(
@@ -358,12 +393,17 @@ async def async_setup_entry(
                     else _bsb_value(state, bsb_address)
                 ),
                 temperature=temperature,
+                entity_category=EntityCategory.DIAGNOSTIC,
+                available_fn=lambda state, bsb_address=address: _bsb_available(state, bsb_address),
+                enabled_default=False,
             )
         )
 
     if not _has_system_item(data, "HeatingCircuitPressure"):
         pressure_address = BSB_ENTITY_ADDRESSES["heating_circuit_pressure"]
-        if _has_bsb_value(data, pressure_address, numeric=True):
+        if pressure_address in data.discovery.bsb_points or data.discovery.probe_status.get(
+            "bsb_points:plant_pressure", ""
+        ).startswith("unavailable"):
             entities.append(
                 ElcoSensor(
                     coordinator,
@@ -373,6 +413,9 @@ async def async_setup_entry(
                         _bsb_value(state, bsb_address)
                     ),
                     pressure=True,
+                    available_fn=lambda state, bsb_address=pressure_address: _bsb_available(
+                        state, bsb_address
+                    ),
                 )
             )
 
@@ -389,7 +432,7 @@ async def async_setup_entry(
         ("hot_gas_temperature", "hot_gas_temperature", "Hot gas temperature"),
     ):
         address = BSB_ENTITY_ADDRESSES[source]
-        if not _has_bsb_value(data, address, numeric=True):
+        if address not in data.discovery.bsb_points and not features.get("hpSys", False):
             continue
         entities.append(
             ElcoSensor(
@@ -398,6 +441,7 @@ async def async_setup_entry(
                 name,
                 lambda state, bsb_address=address: _as_number(_bsb_value(state, bsb_address)),
                 temperature=True,
+                available_fn=lambda state, bsb_address=address: _bsb_available(state, bsb_address),
             )
         )
     async_add_entities(entities)

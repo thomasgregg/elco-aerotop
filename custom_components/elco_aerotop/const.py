@@ -10,13 +10,13 @@ DEFAULT_BASE_URL: Final = "https://www.remocon-net.remotethermo.com"
 DEFAULT_SCAN_INTERVAL: Final = 300
 MIN_SCAN_INTERVAL: Final = 60
 REQUEST_TIMEOUT: Final = 30
-USER_AGENT: Final = "ELCO-Aerotop-Home-Assistant/0.2.6"
+USER_AGENT: Final = "ELCO-Aerotop-Home-Assistant/0.2.7"
 
 CONF_BASE_URL: Final = "base_url"
 CONF_GATEWAY_ID: Final = "gateway_id"
 CONF_SCAN_INTERVAL: Final = "scan_interval"
 
-PLATFORMS: Final = ["binary_sensor", "number", "select", "sensor"]
+PLATFORMS: Final = ["binary_sensor", "calendar", "number", "select", "sensor"]
 
 LOGIN_PATH: Final = "/R2/Account/Login"
 FEATURES_PATH: Final = "/R2/Plant/Features/{gateway_id}?eagerMode=true"
@@ -35,8 +35,8 @@ BSB_READ_PATH: Final = "/R2/PlantMenuBsb/ReadDataPoints/{gateway_id}?addresses={
 
 BSB_ENTITY_ADDRESSES: Final = {
     "700": "2950516",
-    "710": "2950544",
-    "712": "2950565",
+    "710": "2950542",
+    "712": "2950544",
     "714": "2950546",
     "720": "2950646",
     "730": "2950653",
@@ -50,17 +50,24 @@ BSB_ENTITY_ADDRESSES: Final = {
 }
 BSB_DISCOVERY_ADDRESSES: Final = (
     *BSB_ENTITY_ADDRESSES.values(),
-    "2950542",
+    "2950565",
     "328993",
     "5838456",
     "5838457",
 )
 BSB_DISCOVERY_GROUPS: Final = {
-    "heating_circuit": tuple(
-        BSB_ENTITY_ADDRESSES[key] for key in ("700", "710", "712", "714", "720", "730")
+    # Preserve the address grouping verified by v0.2.6 diagnostics. Address
+    # 2950542 is read separately even though it is now correctly mapped to line 710.
+    "heating_circuit": (
+        BSB_ENTITY_ADDRESSES["700"],
+        BSB_ENTITY_ADDRESSES["712"],
+        "2950565",
+        BSB_ENTITY_ADDRESSES["714"],
+        BSB_ENTITY_ADDRESSES["720"],
+        BSB_ENTITY_ADDRESSES["730"],
     ),
     "plant_pressure": (BSB_ENTITY_ADDRESSES["heating_circuit_pressure"],),
-    "plant_auxiliary_2950542": ("2950542",),
+    "plant_auxiliary_2950542": (BSB_ENTITY_ADDRESSES["710"],),
     "plant_auxiliary_328993": ("328993",),
     "heat_pump": (
         BSB_ENTITY_ADDRESSES["heat_pump_flow_temperature"],

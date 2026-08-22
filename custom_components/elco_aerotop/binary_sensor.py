@@ -87,9 +87,7 @@ async def async_setup_entry(
             )
         )
 
-    if (features.get("hpSys") or _heat_pump_running(data) is True) and (
-        _heat_pump_running(data) is not None
-    ):
+    if features.get("hpSys") or _heat_pump_running(data) is not None:
         entities.append(
             ElcoBinarySensor(
                 coordinator,
@@ -104,7 +102,7 @@ async def async_setup_entry(
         or features.get("commBoiler")
         or data.plant.flame_on is True
     )
-    if has_boiler and data.plant.flame_on is not None:
+    if has_boiler:
         entities.append(
             ElcoBinarySensor(
                 coordinator,
@@ -113,7 +111,7 @@ async def async_setup_entry(
                 lambda state: state.plant.flame_on,
             )
         )
-    if not features.get("dhwHidden", False) and data.plant.dhw_enabled is not None:
+    if not features.get("dhwHidden", False):
         entities.append(
             ElcoBinarySensor(
                 coordinator,
@@ -138,7 +136,12 @@ async def async_setup_entry(
         ),
     )
     for key, name, current_value, attribute in plant_error_specs:
-        if current_value is None:
+        probe_present = (
+            data.plant.has_outside_temperature_probe is True
+            if key == "outside_temperature_error"
+            else data.plant.has_dhw_temperature_probe is True
+        )
+        if current_value is None and not probe_present:
             continue
         if key == "outside_temperature_error" and data.plant.has_outside_temperature_probe is False:
             continue
