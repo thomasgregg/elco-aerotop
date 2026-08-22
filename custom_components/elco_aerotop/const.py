@@ -10,7 +10,7 @@ DEFAULT_BASE_URL: Final = "https://www.remocon-net.remotethermo.com"
 DEFAULT_SCAN_INTERVAL: Final = 300
 MIN_SCAN_INTERVAL: Final = 60
 REQUEST_TIMEOUT: Final = 30
-USER_AGENT: Final = "ELCO-Aerotop-Home-Assistant/0.2.10"
+USER_AGENT: Final = "ELCO-Aerotop-Home-Assistant/0.2.11"
 
 CONF_BASE_URL: Final = "base_url"
 CONF_GATEWAY_ID: Final = "gateway_id"
@@ -19,6 +19,7 @@ CONF_SCAN_INTERVAL: Final = "scan_interval"
 PLATFORMS: Final = ["binary_sensor", "calendar", "number", "select", "sensor"]
 
 LOGIN_PATH: Final = "/R2/Account/Login"
+MOBILE_LOGIN_PATH: Final = "/api/v2/accounts/login"
 FEATURES_PATH: Final = "/R2/Plant/Features/{gateway_id}?eagerMode=true"
 GET_DATA_PATH: Final = "/R2/PlantHomeBsb/GetData/{gateway_id}"
 SET_TEMPERATURE_PATH: Final = "/R2/PlantTimeProgBsb/SetTemperature/{gateway_id}"

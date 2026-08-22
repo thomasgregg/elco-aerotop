@@ -15,6 +15,16 @@ issue.
 Each Home Assistant config entry owns an isolated cookie session. A `401`, `403`, or login-page
 HTML response invalidates the session and causes one controlled reauthentication attempt.
 
+Mobile-only endpoints such as `menuItems` require an independent token:
+
+```text
+POST /api/v2/accounts/login  {"usr": "...", "pwd": "..."}
+GET  /api/v2/menuItems/...   ar.authToken: <in-memory token>
+```
+
+The credentials are sent in the HTTPS JSON body, never in the URL. The token is kept only in the
+config entry's private API client and is not included in diagnostics.
+
 ## Reading state
 
 Configured zones are discovered through:

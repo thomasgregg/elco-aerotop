@@ -122,14 +122,14 @@ async def test_login_uses_antiforgery_cookie_and_json_credentials() -> None:
     await client.async_login()
 
     assert session.cookie_jar.cookies["__formRequestVerificationToken"] == "token-123"
-    assert session.calls[0][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.10")
+    assert session.calls[0][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.11")
     assert session.calls[1][2]["json"] == {
         "email": "user@example.com",
         "password": "secret",
         "rememberMe": False,
         "language": "English_Gb",
     }
-    assert session.calls[1][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.10")
+    assert session.calls[1][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.11")
     assert session.calls[0][2]["timeout"].total == 30
 
 
@@ -234,6 +234,7 @@ async def test_broad_read_only_mobile_discovery_preserves_complete_payloads() ->
                     "zones": {"1": {"holidays": [{"index": 0, "osv": True}]}},
                 }
             ),
+            FakeResponse(json_data={"token": "mobile-token"}),
             FakeResponse(
                 json_data=[
                     {"id": 119, "value": -64, "unit": "dBm"},
@@ -251,7 +252,10 @@ async def test_broad_read_only_mobile_discovery_preserves_complete_payloads() ->
     assert menu_items["119"]["unit"] == "dBm"
     assert menu_items["253"]["value"] == 3210
     assert session.calls[2][1].endswith("/api/v2/remote/bsbPlantData/GATEWAY")
-    assert session.calls[3][1].endswith("/api/v2/menuItems/GATEWAY?menuItems=119,253")
+    assert session.calls[3][1].endswith("/api/v2/accounts/login")
+    assert session.calls[3][2]["json"] == {"usr": "user", "pwd": "pass"}
+    assert session.calls[4][1].endswith("/api/v2/menuItems/GATEWAY?menuItems=119,253")
+    assert session.calls[4][2]["headers"]["ar.authToken"] == "mobile-token"
 
 
 @pytest.mark.asyncio

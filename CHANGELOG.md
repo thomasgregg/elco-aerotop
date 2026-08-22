@@ -2,6 +2,15 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.2.11
+
+- Authenticate mobile-only menu-item reads with Remocon's separate JSON token flow. Live v0.2.10
+  diagnostics proved that the valid batched endpoint still returns HTTP 500 when called with only
+  the R2 browser cookie.
+- Submit mobile credentials in a POST JSON body, retain the returned token only in memory, and send
+  it only in the `ar.authToken` request header. Credentials and tokens are never placed in URLs,
+  logs, or diagnostics.
+
 ## 0.2.10
 
 - Read the documented mobile menu-item catalog in serialized batches of 15. Live v0.2.9

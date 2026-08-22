@@ -26,6 +26,7 @@ from .const import (
     MENU_ITEM_IDS,
     MENU_ITEMS_PATH,
     METERING_PATH,
+    MOBILE_LOGIN_PATH,
     PLANTS_LITE_PATH,
     REQUEST_TIMEOUT,
     SAVE_DHW_PATH,
@@ -79,6 +80,8 @@ class ElcoApiClient:
         self.base_url = base_url.rstrip("/")
         self._authenticated = False
         self._auth_lock = asyncio.Lock()
+        self._mobile_token: str | None = None
+        self._mobile_auth_lock = asyncio.Lock()
         self._timeout = ClientTimeout(total=REQUEST_TIMEOUT)
         self.last_features_response: Any = None
 
@@ -221,6 +224,59 @@ class ElcoApiClient:
             raise ElcoResponseError(f"{path} returned an unexpected payload")
         return payload
 
+    async def _async_mobile_login(self) -> None:
+        """Create the separate token session required by mobile-only endpoints."""
+        async with self._mobile_auth_lock:
+            if self._mobile_token is not None:
+                return
+            try:
+                response = await self._session.post(
+                    self._url(MOBILE_LOGIN_PATH),
+                    headers=self._json_headers,
+                    json={"usr": self._username, "pwd": self._password},
+                    timeout=self._timeout,
+                )
+                async with response:
+                    payload = await self._decode_json(response, "mobile login")
+                token = payload.get("token") if isinstance(payload, dict) else None
+                if not isinstance(token, str) or not token:
+                    raise ElcoAuthenticationError("Mobile login did not return a token")
+                self._mobile_token = token
+            except ElcoApiError:
+                self._mobile_token = None
+                raise
+            except (ClientError, TimeoutError) as err:
+                self._mobile_token = None
+                raise ElcoConnectionError("Unable to connect to the Remocon mobile API") from err
+
+    async def _request_mobile_payload(
+        self,
+        path: str,
+        *,
+        retry_auth: bool = True,
+    ) -> Any:
+        """Make one token-authenticated, read-only mobile API request."""
+        if self._mobile_token is None:
+            await self._async_mobile_login()
+        try:
+            response = await self._session.get(
+                self._url(path),
+                headers={**self._json_headers, "ar.authToken": self._mobile_token or ""},
+                timeout=self._timeout,
+            )
+            async with response:
+                return await self._decode_json(response, path)
+        except ElcoAuthenticationError:
+            self._mobile_token = None
+            if not retry_auth:
+                raise
+            await self._async_mobile_login()
+            return await self._request_mobile_payload(path, retry_auth=False)
+        except ElcoApiError:
+            raise
+        except (ClientError, TimeoutError) as err:
+            raise ElcoConnectionError(f"Unable to communicate with Remocon: {path}") from err
+
     async def async_get_features(self) -> dict[str, Any]:
         """Fetch the complete capability map returned for this gateway."""
         payload = await self._request_json(
@@ -317,14 +373,11 @@ class ElcoApiClient:
         item_ids: tuple[int, ...] = MENU_ITEM_IDS,
     ) -> dict[str, dict[str, Any]]:
         """Fetch all supported values from the bounded mobile menu-item catalog."""
-        payload = await self._request_payload(
-            "GET",
+        payload = await self._request_mobile_payload(
             MENU_ITEMS_PATH.format(
                 gateway_id=self.gateway_id,
                 item_ids=",".join(str(item_id) for item_id in item_ids),
             ),
-            retry_auth=False,
-            invalidate_auth=False,
         )
         items = payload.get("data", payload) if isinstance(payload, dict) else payload
         if not isinstance(items, list):
