@@ -500,6 +500,33 @@ async def async_setup_entry(
             )
         )
 
+    if any(supports_cooling(features, zone) for zone in data.zones.values()):
+        for source, key, name in (
+            (
+                "cooling_2_flow_temperature",
+                "cooling_2_flow_temperature",
+                "Cooling circuit 2 flow temperature",
+            ),
+            (
+                "cooling_2_flow_setpoint",
+                "cooling_2_flow_setpoint",
+                "Cooling circuit 2 flow setpoint",
+            ),
+        ):
+            address = BSB_ENTITY_ADDRESSES[source]
+            entities.append(
+                ElcoSensor(
+                    coordinator,
+                    key,
+                    name,
+                    lambda state, bsb_address=address: _as_number(_bsb_value(state, bsb_address)),
+                    temperature=True,
+                    available_fn=lambda state, bsb_address=address: _bsb_available(
+                        state, bsb_address
+                    ),
+                )
+            )
+
     energy_fields = (
         ("heat_delivered_heating", "Heat delivered heating"),
         ("heat_delivered_dhw", "Heat delivered DHW"),

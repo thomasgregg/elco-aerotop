@@ -10,7 +10,7 @@ DEFAULT_BASE_URL: Final = "https://www.remocon-net.remotethermo.com"
 DEFAULT_SCAN_INTERVAL: Final = 300
 MIN_SCAN_INTERVAL: Final = 60
 REQUEST_TIMEOUT: Final = 30
-USER_AGENT: Final = "ELCO-Aerotop-Home-Assistant/0.2.18"
+USER_AGENT: Final = "ELCO-Aerotop-Home-Assistant/0.2.19"
 
 CONF_BASE_URL: Final = "base_url"
 CONF_GATEWAY_ID: Final = "gateway_id"
@@ -85,6 +85,10 @@ BSB_ENTITY_ADDRESSES: Final = {
     "heat_pump_gas_temperature": "334189",
     "source_outlet_temperature": "5834170",
     "hot_gas_temperature": "5834175",
+    # Diagnostics consumers > 8786/8787, verified from structured BSB
+    # accordion metadata. These are queried only for cooling-capable plants.
+    "cooling_2_flow_temperature": "6949497",
+    "cooling_2_flow_setpoint": "6949405",
 }
 BSB_DISCOVERY_ADDRESSES: Final = (
     *BSB_ENTITY_ADDRESSES.values(),
@@ -125,6 +129,10 @@ BSB_DISCOVERY_GROUPS: Final = {
         BSB_ENTITY_ADDRESSES["hot_gas_temperature"],
         "5838456",
         "5838457",
+    ),
+    "cooling_2": (
+        BSB_ENTITY_ADDRESSES["cooling_2_flow_temperature"],
+        BSB_ENTITY_ADDRESSES["cooling_2_flow_setpoint"],
     ),
     # Verified safe reads retained in diagnostics. Values already represented
     # by a primary control (holiday level) or one-shot reset actions (schedule

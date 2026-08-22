@@ -192,8 +192,14 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
             status.update(base.probe_status)
             bsb_points: dict[str, Any] = {}
             available_bsb_groups = 0
+            programs, has_cooling = self._schedule_programs(source_data)
+            supported_bsb_groups = len(BSB_DISCOVERY_GROUPS)
             for group_name, addresses in BSB_DISCOVERY_GROUPS.items():
                 if group_name.startswith("energy_history_"):
+                    continue
+                if group_name == "cooling_2" and not has_cooling:
+                    status[f"bsb_points:{group_name}"] = "unsupported:feature"
+                    supported_bsb_groups -= 1
                     continue
                 group = await self._async_optional_probe(
                     f"bsb_points:{group_name}",
@@ -207,7 +213,6 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
 
             # Remocon forwards several of these reads to the controller bus. Keep
             # every BSB and schedule request serialized to avoid gateway contention.
-            programs, has_cooling = self._schedule_programs(source_data)
             schedules: dict[str, Any] = {}
             for program in programs:
                 schedule = await self._async_optional_probe(
@@ -286,7 +291,7 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
                     bsb_points.update(group)
                     available_bsb_groups += 1
 
-            if available_bsb_groups == len(BSB_DISCOVERY_GROUPS):
+            if available_bsb_groups == supported_bsb_groups:
                 status["bsb_points"] = "available"
             elif available_bsb_groups:
                 status["bsb_points"] = "partially_available"

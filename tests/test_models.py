@@ -284,6 +284,7 @@ def test_heating_setpoint_addresses_match_live_controller_values() -> None:
     assert BSB_ENTITY_ADDRESSES["712"] == "2950544"
     assert BSB_DISCOVERY_GROUPS["plant_auxiliary_2950542"] == ("2950542",)
     assert BSB_DISCOVERY_GROUPS["maintenance_message"] == ("327836",)
+    assert BSB_DISCOVERY_GROUPS["cooling_2"] == ("6949497", "6949405")
 
 
 def test_energy_history_addresses_match_verified_controller_families() -> None:

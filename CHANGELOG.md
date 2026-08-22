@@ -2,6 +2,13 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.2.19
+
+- Add model-conditional sensors for BSB diagnostics lines **8786 – Flow temp cooling 2** and
+  **8787 – Flow temp setp cooling 2**, using their verified structured JSON addresses.
+- Query those datapoints only when the gateway advertises cooling; non-cooling plants record the
+  family as `unsupported:feature` and do not create misleading zero-value entities.
+
 ## 0.2.18
 
 - Parse the live annual-record date shape returned by `ReadDataPoints`

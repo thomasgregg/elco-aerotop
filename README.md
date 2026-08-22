@@ -144,6 +144,8 @@ require the current value, limits, or allowed options needed to send a validated
 | Heat pump gas temperature | `sensor.<device>_heat_pump_gas_temperature` | BSB | °C | Heat-pump gas temperature datapoint. |
 | Source outlet temperature | `sensor.<device>_source_outlet_temperature` | BSB | °C | Heat-source outlet temperature. |
 | Hot gas temperature | `sensor.<device>_hot_gas_temperature` | BSB | °C | Heat-pump hot-gas temperature. |
+| Cooling circuit 2 flow temperature | `sensor.<device>_cooling_circuit_2_flow_temperature` | BSB cooling | °C | BSB diagnostics line 8786, created only when the gateway advertises cooling. |
+| Cooling circuit 2 flow setpoint | `sensor.<device>_cooling_circuit_2_flow_setpoint` | BSB cooling | °C | BSB diagnostics line 8787, created only when the gateway advertises cooling. |
 | Hydraulic pressure health | `sensor.<device>_hydraulic_pressure_health` | Diagnostic | level | Automated-monitoring health level returned by Remocon. |
 | Refrigerant circuit health | `sensor.<device>_refrigerant_circuit_health` | Diagnostic | level | Refrigerant-circuit health level returned by Remocon. |
 | Circulation health | `sensor.<device>_circulation_health` | Diagnostic | level | Circulation health level returned by Remocon. |
