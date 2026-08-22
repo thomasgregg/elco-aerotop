@@ -2,6 +2,24 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.3.0
+
+- Change the default polling interval from five minutes to 60 minutes. Existing explicitly saved
+  polling options remain unchanged, and slow discovery remains approximately hourly at every
+  selectable polling interval rather than being delayed to every 12 hours at the new default.
+- Add a native Home Assistant `climate` entity for each safely controllable heating zone, with
+  Automatic/Heat HVAC modes, verified Comfort/Reduced/Protection preset mappings, comfort-target
+  writing, real room temperature when available, and controller-backed HVAC activity.
+- Add a native `water_heater` entity for domestic hot water, with storage and comfort
+  temperatures, conditional Off/On/Eco operations, and Home Assistant on/off services only when
+  the gateway supports both commands.
+- Map controller modes by their verified numeric values rather than translated Remocon labels.
+- Retain every existing number/select unique ID and write path, while classifying those raw
+  controls as advanced Configuration entities to reduce duplication in the primary Controls card.
+- Document the native-to-ELCO mappings, preserved values, conditional availability, room-sensor
+  behavior, frost-protection semantics, cooling limitation, and relationship between native and
+  advanced controls.
+
 ## 0.2.20
 
 - Align all energy-history display names with the authenticated ELCO Remocon Energy meter page:

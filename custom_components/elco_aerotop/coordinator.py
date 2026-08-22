@@ -35,7 +35,7 @@ from .models import ElcoData, ReadOnlyDiscovery
 
 _LOGGER = logging.getLogger(__name__)
 
-_SLOW_DISCOVERY_POLL_INTERVAL = 12
+_SLOW_DISCOVERY_INTERVAL_SECONDS = 3600
 _OPTIONAL_PROBE_TIMEOUT = 15
 _BSB_PROBE_TIMEOUT = 30
 
@@ -64,6 +64,10 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         self._command_lock = asyncio.Lock()
         self._discovery_lock = asyncio.Lock()
         self._slow_discovery = ReadOnlyDiscovery()
+        self._slow_discovery_poll_count = max(
+            1,
+            (_SLOW_DISCOVERY_INTERVAL_SECONDS + scan_interval - 1) // scan_interval,
+        )
         self._polls_until_slow_discovery = 0
         self._initial_discovery_complete = False
         self._background_discovery_task: asyncio.Task[None] | None = None
@@ -355,7 +359,7 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
                     self._initial_discovery_complete = True
                 else:
                     self.start_deferred_discovery(refresh_core=True)
-                self._polls_until_slow_discovery = _SLOW_DISCOVERY_POLL_INTERVAL - 1
+                self._polls_until_slow_discovery = self._slow_discovery_poll_count - 1
                 status.update(self._slow_discovery.probe_status)
             else:
                 self._polls_until_slow_discovery -= 1

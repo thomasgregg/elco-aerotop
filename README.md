@@ -40,8 +40,8 @@
 ## Overview
 
 ELCO Aerotop communicates directly with the structured JSON endpoints used by the Remocon.net web
-application. It appears in Home Assistant as one device with native sensors, binary sensors,
-numbers, and selects.
+application. It appears in Home Assistant as one device with native thermostats, a domestic-hot-
+water controller, sensors, binary sensors, calendars, and advanced number/select controls.
 
 Unlike the earlier add-on approach, this integration:
 
@@ -75,9 +75,11 @@ account; it does not communicate with the heat pump over the local network.
 - Isolated read-only discovery of the complete known system-property set, native BSB plant data,
   supported mobile menu items, BSB-native schedules, metering, automated monitoring, predictive
   maintenance, errors, annual energy history, and allowlisted BSB parameters
-- Conservative five-minute polling interval by default
+- Conservative 60-minute polling interval by default
 - Configurable polling interval from 60 to 3,600 seconds
 - Read-only temperatures and operating-state entities
+- Native Home Assistant thermostat control for each supported heating zone
+- Native Home Assistant water-heater control for domestic hot water
 - Writable heating and domestic-hot-water setpoints
 - Writable heating-zone and domestic-hot-water operating modes
 - Limits, step sizes, and mode options supplied by Remocon where available
@@ -98,6 +100,65 @@ of service. Such entities remain in Home Assistant and become available automati
 starts returning a valid value. Features explicitly reported as unsupported are omitted, so two
 Aerotop installations can still expose different entity sets. Writable entities additionally
 require the current value, limits, or allowed options needed to send a validated command.
+
+### Primary controls
+
+The native entities below are the recommended controls for dashboards, voice assistants,
+automations, and Home Assistant's standard device cards. They use the same fresh-read,
+validation, serialization, and companion-value preservation as the lower-level controls.
+
+| Entity name | Typical entity ID pattern | Scope | Native model | What it controls |
+|---|---|---:|---|---|
+| Zone `<zone>` thermostat | `climate.<device>_zone_<zone>_thermostat` | Per zone | Climate | Zone mode, direct-heating preset, and comfort setpoint. Also reports controller activity and a real room reading when the zone has a room sensor. |
+| Domestic hot water | `water_heater.<device>_domestic_hot_water` | Plant | Water heater | DHW mode and comfort target. Also reports the measured storage temperature when a healthy DHW probe is present. |
+
+#### Heating-zone thermostat behavior
+
+Remocon models a heating zone as one scheduled mode plus several stored setpoints rather than as a
+simple on/off thermostat. The integration maps that controller model to Home Assistant as follows:
+
+| ELCO controller mode | Home Assistant HVAC mode | Home Assistant preset | Write behavior |
+|---|---|---|---|
+| Automatic | `auto` | None | Runs the ELCO time program. Selecting `auto` writes Automatic. |
+| Comfort | `heat` | `comfort` | Runs continuously at the ELCO comfort level. Selecting `heat` prefers Comfort; selecting the `comfort` preset writes Comfort directly. |
+| Reduced | `heat` | `eco` | Runs continuously at the reduced level. Selecting the `eco` preset writes Reduced directly. |
+| Protection | `heat` | `Protection` | Keeps ELCO frost protection active. It is deliberately **not** represented as `off`, because the controller may still call for heat to protect the installation. |
+
+The thermostat target is the stored **comfort setpoint**. Changing it calls the same verified
+Remocon temperature endpoint as the advanced comfort-temperature number and preserves the reduced
+setpoint. The effective target can differ while Automatic, Reduced, Protection, or a holiday
+program is active; `sensor.<device>_zone_<zone>_desired_temperature` reports the controller's
+current effective request.
+
+`current_temperature` is populated only from that zone's actual room sensor. A gateway without a
+room sensor therefore shows no current room temperature in the thermostat card. The integration
+does not substitute outdoor, heating-flow, or desired temperature, because each has a different
+physical meaning. `hvac_action` reports `heating`, `cooling`, or `idle` only when Remocon supplies
+the corresponding activity flags.
+
+Cooling readings remain available on cooling-capable systems, and Automatic may report a cooling
+action. A writable `cool` HVAC mode is not exposed yet because a real cooling-mode write contract
+has not been verified. This avoids presenting a control that might write the wrong controller
+state.
+
+#### Domestic-hot-water behavior
+
+| ELCO DHW mode code | ELCO display meaning | Home Assistant operation | Notes |
+|---:|---|---|---|
+| 0 | Off | `off` | DHW heating is disabled. |
+| 1 | On | `heat_pump` | Normal Aerotop DHW operation. This operation describes the selected mode, not whether the compressor is running at that instant. |
+| 2 | Eco | `eco` | Offered only when the configured gateway returns Eco as an allowed option. |
+
+Only modes listed by the gateway are exposed. The water heater's target is the DHW **comfort
+temperature**, while its current temperature is the measured storage temperature. Changing the
+target or operation preserves the reduced target and every unchanged DHW value required by
+Remocon. Home Assistant's turn-on and turn-off services are advertised only when both ELCO On and
+Off are supported. The separate reduced-temperature number remains available for time programs
+and Eco/reduced operation.
+
+The numeric mode codes above are used only after Remocon returns them in the gateway's allowed
+options. Mapping by stable code instead of translated display text keeps the native controls
+working when the Remocon account language is not English.
 
 ### Sensors
 
@@ -203,7 +264,20 @@ response. No holiday data is obtained by website scraping.
 | Zone `<zone>` cooling active | `binary_sensor.<device>_zone_<zone>_cooling_active` | Per zone | Running | Cooling-active state returned for the zone. |
 | Zone `<zone>` room temperature sensor problem | `binary_sensor.<device>_zone_<zone>_room_temperature_sensor_problem` | Per zone | Problem | Controller error flag for the room sensor. |
 
-### Number controls
+### Advanced and backward-compatible controls
+
+The number and select entities expose the original Remocon control model directly. They are kept
+for precise configuration, unusual controller variants, existing dashboards, and automations that
+already reference their entity IDs. They now use Home Assistant's **Configuration** entity
+category, so the native thermostat and water-heater entities remain the primary device controls.
+No entity ID or unique ID is changed by this reclassification.
+
+If the native entities cover your use case, the comfort-temperature numbers and mode selects may
+be disabled in **Settings → Devices & services → Entities** without affecting the thermostat or
+water heater. Keep the reduced-temperature numbers enabled when you want to adjust the stored
+reduced/Eco levels independently.
+
+#### Number controls
 
 | Entity name | Typical entity ID pattern | Scope | Unit | Write behavior |
 |---|---|---:|---:|---|
@@ -215,7 +289,7 @@ response. No holiday data is obtained by website scraping.
 The controls use Remocon-provided minimum, maximum, and step values when present. The integration
 also rejects a comfort temperature below its corresponding reduced temperature.
 
-### Select controls
+#### Select controls
 
 | Entity name | Typical entity ID pattern | Scope | Write behavior |
 |---|---|---:|---|
@@ -224,7 +298,9 @@ also rejects a comfort temperature below its corresponding reduced temperature.
 
 Mode names and the number of available choices are supplied by Remocon and can differ between
 controllers, firmware versions, and account languages. A select is not created if the gateway does
-not return a list of allowed choices.
+not return a list of allowed choices. These selects and the native controls call the same
+coordinator methods; changing one updates the other after the normal post-command refresh rather
+than issuing a duplicate command.
 
 ## Read-only capability discovery
 
@@ -358,9 +434,17 @@ Open **Settings → Devices & services → ELCO Aerotop → Configure** to chang
 
 | Option | Default | Minimum | Maximum | Notes |
 |---|---:|---:|---:|---|
-| Polling interval | 300 seconds | 60 seconds | 3,600 seconds | A shorter interval increases traffic to the undocumented Remocon service. |
+| Polling interval | 3,600 seconds | 60 seconds | 3,600 seconds | The default is one hour. A shorter interval increases traffic to the undocumented Remocon service. |
 
-The integration reloads automatically when the option changes.
+This option controls the normal plant, zone, and system-item refresh. The slower read-only
+discovery families—schedules, maintenance, automated monitoring, controller diagnostics, and
+energy history—run once in the background after setup and then approximately every 60 minutes.
+Their cadence is calculated from the selected polling interval, so choosing a shorter normal poll
+does not make these controller-heavy requests run unnecessarily often, and the one-hour default
+does not postpone them for 12 hours.
+
+The integration reloads automatically when the option changes. A successful write also requests
+an immediate state refresh; it does not wait for the next scheduled poll.
 
 ## Write-safety model
 
@@ -376,6 +460,16 @@ companion value. Every write therefore follows this sequence:
 6. Send one typed command through the dedicated Remocon endpoint.
 7. Refresh Home Assistant state from Remocon.
 
+The native and advanced controls are two views of those same validated values:
+
+| User-facing control | Remocon value written | Preserved companion values |
+|---|---|---|
+| Thermostat target | Zone comfort temperature | Zone reduced temperature and current zone payload |
+| Thermostat HVAC mode/preset | Zone operating mode | Fresh plant and zone payload |
+| Water-heater target | DHW comfort temperature | DHW reduced temperature and current mode |
+| Water-heater operation/on/off | DHW mode | DHW comfort and reduced temperatures |
+| Advanced number/select | Its corresponding value above | Same companions as the native entity |
+
 The integration deliberately does not expose an arbitrary BSB-address write service. New writable
 parameters should only be added after their request shape and controller behavior have been
 captured and tested.
@@ -383,11 +477,21 @@ captured and tested.
 ## Availability and refresh behavior
 
 - Plant and zone data are coordinated into a single Home Assistant snapshot.
+- Normal plant, zone, and system-item values refresh at the configured polling interval: 60
+  minutes by default.
+- Schedules, maintenance, monitoring, BSB diagnostics, and energy history refresh in a deferred
+  background cycle approximately every 60 minutes, independently of the selected normal polling
+  interval. Their first deferred refresh starts after entity setup.
 - Zone entities are created from the zones discovered during initial setup.
+- A zone thermostat is created only when Remocon returns a comfort target and at least one verified
+  zone operating mode.
+- The water-heater entity is created only when Remocon returns a DHW comfort target and at least
+  one verified, allowed DHW mode.
 - Optional sensors and binary sensors are created only when their source value exists during that
   initial discovery; unsupported values do not create placeholder entities.
-- Writable number and select entities are omitted if Remocon does not provide enough information
-  to use them safely.
+- Writable native, number, and select entities are omitted if Remocon does not provide enough
+  information to use them safely. Modes that a particular gateway does not offer are omitted from
+  that entity's supported mode list.
 - Authentication expiry triggers one controlled login retry.
 - Rejected credentials start Home Assistant's reauthentication flow.
 - Communication failures mark coordinator-backed entities unavailable until a later poll succeeds.
