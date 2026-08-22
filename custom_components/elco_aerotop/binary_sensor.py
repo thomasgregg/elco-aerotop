@@ -44,11 +44,13 @@ class ElcoBinarySensor(ElcoAerotopEntity, BinarySensorEntity):
         value_fn: Callable[[ElcoData], bool | None],
         device_class: BinarySensorDeviceClass = BinarySensorDeviceClass.RUNNING,
         entity_category: EntityCategory | None = None,
+        enabled_default: bool = True,
     ) -> None:
         super().__init__(coordinator, key)
         self._attr_name = name
         self._attr_device_class = device_class
         self._attr_entity_category = entity_category
+        self._attr_entity_registry_enabled_default = enabled_default
         self._value_fn = value_fn
 
     @property
@@ -118,6 +120,8 @@ async def async_setup_entry(
                 "dhw_enabled",
                 "Domestic hot water enabled",
                 lambda state: state.plant.dhw_enabled,
+                entity_category=EntityCategory.DIAGNOSTIC,
+                enabled_default=False,
             )
         )
 
@@ -154,17 +158,46 @@ async def async_setup_entry(
                 name,
                 lambda state, field=attribute: getattr(state.plant, field),
                 BinarySensorDeviceClass.PROBLEM,
+                entity_category=EntityCategory.DIAGNOSTIC,
             )
         )
 
     for zone_number, zone in data.zones.items():
         has_cooling = supports_cooling(features, zone)
         zone_specs = (
-            ("heat_request", "heat request", zone.heat_or_cool_request, "heat_or_cool_request"),
-            ("heating_active", "heating active", zone.heating_active, "heating_active"),
-            ("cooling_active", "cooling active", zone.cooling_active, "cooling_active"),
+            (
+                "heat_request",
+                "heat request",
+                zone.heat_or_cool_request,
+                "heat_or_cool_request",
+                None,
+                True,
+            ),
+            (
+                "heating_active",
+                "heating active",
+                zone.heating_active,
+                "heating_active",
+                EntityCategory.DIAGNOSTIC,
+                False,
+            ),
+            (
+                "cooling_active",
+                "cooling active",
+                zone.cooling_active,
+                "cooling_active",
+                EntityCategory.DIAGNOSTIC,
+                False,
+            ),
         )
-        for key_suffix, label, current_value, attribute in zone_specs:
+        for (
+            key_suffix,
+            label,
+            current_value,
+            attribute,
+            entity_category,
+            enabled_default,
+        ) in zone_specs:
             if current_value is None:
                 continue
             if key_suffix == "cooling_active" and not has_cooling:
@@ -177,6 +210,8 @@ async def async_setup_entry(
                     lambda state, zone_id=zone_number, field=attribute: getattr(
                         state.zones[zone_id], field
                     ),
+                    entity_category=entity_category,
+                    enabled_default=enabled_default,
                 )
             )
         if supports_room_sensor(zone) and zone.room_temperature_error is not None:
@@ -187,6 +222,7 @@ async def async_setup_entry(
                     f"Zone {zone_number} room temperature sensor problem",
                     lambda state, zone_id=zone_number: state.zones[zone_id].room_temperature_error,
                     BinarySensorDeviceClass.PROBLEM,
+                    entity_category=EntityCategory.DIAGNOSTIC,
                 )
             )
     async_add_entities(entities)

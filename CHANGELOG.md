@@ -2,6 +2,22 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.3.1
+
+- Apply a consistent Home Assistant entity policy: primary native controls and everyday
+  measurements remain enabled, controller settings move to Configuration, and faults, metadata,
+  maintenance, internal temperatures, and low-level BSB values move to Diagnostics as appropriate.
+- Disable exact comfort/mode duplicates by default for new registrations while keeping the
+  independent zone and DHW reduced-temperature controls enabled.
+- Disable all 80 annual energy-history entities by default, including the eight fields in slot 1.
+- Preserve every existing entity ID and Home Assistant's current enabled/disabled choices during
+  upgrades; the new defaults only apply when an entity is first registered.
+- Add a dedicated complete entity reference covering categories, defaults, conditional creation,
+  native/compatibility overlap, write access, holidays, maintenance, energy semantics, and entity
+  registry behavior, with a concise link from the main README.
+- Clearly mark write controls, holiday calendars, and read-only schedule discovery as needing
+  broader real-system testing, and document how contributors can submit safe, redacted reports.
+
 ## 0.3.0
 
 - Change the default polling interval from five minutes to 60 minutes. Existing explicitly saved

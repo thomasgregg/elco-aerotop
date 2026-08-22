@@ -20,11 +20,20 @@
 > gateways and Aerotop models. Begin with monitoring, then test one conservative setpoint change
 > while you can verify the result on the controller or official application.
 
+> [!WARNING]
+> **Real-system testers are wanted.** The write controls, holiday calendars, and read-only schedule
+> discovery have automated coverage but have not yet been sufficiently field-tested across ELCO
+> models, firmware versions, and populated schedules. If you can test them, please report the
+> controller model, observed result, and a carefully inspected redacted diagnostic export in a
+> [GitHub issue](https://github.com/thomasgregg/elco-aerotop/issues). Never include credentials,
+> session cookies, access tokens, or unredacted personal data.
+
 ## Contents
 
 - [Overview](#overview)
 - [Features](#features)
 - [Entities](#entities)
+  - [Complete entity reference](docs/entities.md)
 - [Read-only capability discovery](#read-only-capability-discovery)
 - [Installation](#installation)
 - [Home Assistant setup](#home-assistant-setup)
@@ -90,217 +99,24 @@ account; it does not communicate with the heat pump over the local network.
 
 ## Entities
 
-All entities are grouped under a device named `ELCO Aerotop <gateway ID>`. Home Assistant generates
-the final entity ID from the device and entity name, and users may rename it. The patterns below
-therefore use `<device>` and `<zone>` placeholders.
+All entities belong to one ELCO Aerotop device, and the exact set is capability-driven. Primary
+thermostat and domestic-hot-water controls plus everyday operational values are enabled by
+default. Advanced configuration, duplicate controls, low-level BSB diagnostics, and all 80 fixed
+energy-history entities are organized separately and selectively disabled to keep the device page
+useful.
 
-Entity creation is capability-driven. Stable plant, zone, and heat-pump entities are created when
-the gateway advertises the relevant capability, even when a particular reading is temporarily out
-of service. Such entities remain in Home Assistant and become available automatically when Remocon
-starts returning a valid value. Features explicitly reported as unsupported are omitted, so two
-Aerotop installations can still expose different entity sets. Writable entities additionally
-require the current value, limits, or allowed options needed to send a validated command.
+The entity reference explains every entity family, including:
 
-### Primary controls
+- the Home Assistant section and default enabled state;
+- exact entity-ID patterns and conditional creation rules;
+- read-only versus read/write behavior;
+- thermostat, DHW, holiday, maintenance, and energy semantics;
+- why native controls overlap with some compatibility entities;
+- unavailable versus disabled entities and upgrade behavior.
 
-The native entities below are the recommended controls for dashboards, voice assistants,
-automations, and Home Assistant's standard device cards. They use the same fresh-read,
-validation, serialization, and companion-value preservation as the lower-level controls.
-
-| Entity name | Typical entity ID pattern | Scope | Native model | What it controls |
-|---|---|---:|---|---|
-| Zone `<zone>` thermostat | `climate.<device>_zone_<zone>_thermostat` | Per zone | Climate | Zone mode, direct-heating preset, and comfort setpoint. Also reports controller activity and a real room reading when the zone has a room sensor. |
-| Domestic hot water | `water_heater.<device>_domestic_hot_water` | Plant | Water heater | DHW mode and comfort target. Also reports the measured storage temperature when a healthy DHW probe is present. |
-
-#### Heating-zone thermostat behavior
-
-Remocon models a heating zone as one scheduled mode plus several stored setpoints rather than as a
-simple on/off thermostat. The integration maps that controller model to Home Assistant as follows:
-
-| ELCO controller mode | Home Assistant HVAC mode | Home Assistant preset | Write behavior |
-|---|---|---|---|
-| Automatic | `auto` | None | Runs the ELCO time program. Selecting `auto` writes Automatic. |
-| Comfort | `heat` | `comfort` | Runs continuously at the ELCO comfort level. Selecting `heat` prefers Comfort; selecting the `comfort` preset writes Comfort directly. |
-| Reduced | `heat` | `eco` | Runs continuously at the reduced level. Selecting the `eco` preset writes Reduced directly. |
-| Protection | `heat` | `Protection` | Keeps ELCO frost protection active. It is deliberately **not** represented as `off`, because the controller may still call for heat to protect the installation. |
-
-The thermostat target is the stored **comfort setpoint**. Changing it calls the same verified
-Remocon temperature endpoint as the advanced comfort-temperature number and preserves the reduced
-setpoint. The effective target can differ while Automatic, Reduced, Protection, or a holiday
-program is active; `sensor.<device>_zone_<zone>_desired_temperature` reports the controller's
-current effective request.
-
-`current_temperature` is populated only from that zone's actual room sensor. A gateway without a
-room sensor therefore shows no current room temperature in the thermostat card. The integration
-does not substitute outdoor, heating-flow, or desired temperature, because each has a different
-physical meaning. `hvac_action` reports `heating`, `cooling`, or `idle` only when Remocon supplies
-the corresponding activity flags.
-
-Cooling readings remain available on cooling-capable systems, and Automatic may report a cooling
-action. A writable `cool` HVAC mode is not exposed yet because a real cooling-mode write contract
-has not been verified. This avoids presenting a control that might write the wrong controller
-state.
-
-#### Domestic-hot-water behavior
-
-| ELCO DHW mode code | ELCO display meaning | Home Assistant operation | Notes |
-|---:|---|---|---|
-| 0 | Off | `off` | DHW heating is disabled. |
-| 1 | On | `heat_pump` | Normal Aerotop DHW operation. This operation describes the selected mode, not whether the compressor is running at that instant. |
-| 2 | Eco | `eco` | Offered only when the configured gateway returns Eco as an allowed option. |
-
-Only modes listed by the gateway are exposed. The water heater's target is the DHW **comfort
-temperature**, while its current temperature is the measured storage temperature. Changing the
-target or operation preserves the reduced target and every unchanged DHW value required by
-Remocon. Home Assistant's turn-on and turn-off services are advertised only when both ELCO On and
-Off are supported. The separate reduced-temperature number remains available for time programs
-and Eco/reduced operation.
-
-The numeric mode codes above are used only after Remocon returns them in the gateway's allowed
-options. Mapping by stable code instead of translated display text keeps the native controls
-working when the Remocon account language is not English.
-
-### Sensors
-
-| Entity name | Typical entity ID pattern | Scope | Unit | Description |
-|---|---|---:|---:|---|
-| Outside temperature | `sensor.<device>_outside_temperature` | Plant | °C | Outdoor temperature reported by the ELCO controller. |
-| Domestic hot water temperature | `sensor.<device>_domestic_hot_water_temperature` | Plant | °C | Current temperature measured in the DHW storage tank. |
-| Gateway serial | `sensor.<device>_gateway_serial` | Diagnostic | — | Gateway serial returned by the native plant-list API. |
-| Plant name | `sensor.<device>_plant_name` | Diagnostic | — | Remocon plant name. |
-| Plant location | `sensor.<device>_plant_location` | Diagnostic | — | Address and locality configured for the plant. |
-| Gateway firmware | `sensor.<device>_gateway_firmware` | Diagnostic | — | Gateway firmware version. |
-| Controller error count | `sensor.<device>_controller_error_count` | Diagnostic | — | Number of current records returned by the controller-error API. |
-| Maintenance code 1 | `sensor.<device>_maintenance_code_1` | Diagnostic | — | Primary BSB line 7000 maintenance code and controller-provided description. |
-| Maintenance priority 1 | `sensor.<device>_maintenance_priority_1` | Diagnostic | — | Priority associated with the primary maintenance message. |
-| Maintenance code 2 | `sensor.<device>_maintenance_code_2` | Diagnostic | — | Secondary simultaneous BSB line 7000 maintenance code and description. |
-| Maintenance priority 2 | `sensor.<device>_maintenance_priority_2` | Diagnostic | — | Priority associated with the secondary maintenance message. |
-| Heating circuit pressure | `sensor.<device>_heating_circuit_pressure` | Plant | bar | System pressure from the read-only system-data endpoint. |
-| Heating circuit flow temperature | `sensor.<device>_heating_circuit_flow_temperature` | Plant | °C | Current primary heating-flow temperature. |
-| Heating circuit flow setpoint temperature | `sensor.<device>_heating_circuit_flow_setpoint_temperature` | Plant | °C | Current primary heating-flow target. |
-| Zone `<zone>` desired temperature | `sensor.<device>_zone_<zone>_desired_temperature` | Per zone | °C | Effective room-temperature target currently requested by the controller. |
-| Zone `<zone>` room temperature | `sensor.<device>_zone_<zone>_room_temperature` | Per zone | °C | Room temperature reported for the zone. The state is unknown if no room sensor is available. |
-| Zone `<zone>` mode | `sensor.<device>_zone_<zone>_mode` | Diagnostic | — | Backward-compatible read-only representation of the current controller mode. Disabled by default for new installations because the zone-mode select already exposes this state. |
-| Zone `<zone>` cooling comfort temperature | `sensor.<device>_zone_<zone>_cooling_comfort_temperature` | Per zone | °C | Cooling comfort target reported by `GetData`. |
-| Zone `<zone>` cooling reduced temperature | `sensor.<device>_zone_<zone>_cooling_reduced_temperature` | Per zone | °C | Cooling reduced target reported by `GetData`. |
-| Zone `<zone>` heating protection temperature | `sensor.<device>_zone_<zone>_heating_protection_temperature` | Per zone | °C | Heating frost/protection target. |
-| Zone `<zone>` cooling protection temperature | `sensor.<device>_zone_<zone>_cooling_protection_temperature` | Per zone | °C | Cooling protection target. |
-| Zone `<zone>` heating holiday temperature | `sensor.<device>_zone_<zone>_heating_holiday_temperature` | Per zone | °C | Heating target used during holidays. |
-| Zone `<zone>` cooling holiday temperature | `sensor.<device>_zone_<zone>_cooling_holiday_temperature` | Per zone | °C | Cooling target used during holidays. |
-| Zone `<zone>` holiday operating level | `sensor.<device>_zone_<zone>_holiday_operating_level` | Per zone | — | Whether BSB holiday periods use Frost protection or Reduced operation. |
-| Zone `<zone>` heating flow temperature | `sensor.<device>_zone_<zone>_heating_flow_temperature` | Per zone | °C | Zone heating-flow value from read-only system data. |
-| Zone `<zone>` heating flow offset | `sensor.<device>_zone_<zone>_heating_flow_offset` | Per zone | °C | Zone heating-flow correction. |
-| Zone `<zone>` cooling flow temperature | `sensor.<device>_zone_<zone>_cooling_flow_temperature` | Per zone | °C | Zone cooling-flow value from read-only system data. |
-| Zone `<zone>` cooling flow offset | `sensor.<device>_zone_<zone>_cooling_flow_offset` | Per zone | °C | Zone cooling-flow correction. |
-| Zone `<zone>` derogation temperature | `sensor.<device>_zone_<zone>_derogation_temperature` | Per zone | °C | Temporary zone override reported by system data. |
-| Heating circuit 700 operating mode | `sensor.<device>_heating_circuit_700_operating_mode` | BSB | — | Read-only controller parameter 700. |
-| Heating circuit 710 comfort setpoint | `sensor.<device>_heating_circuit_710_comfort_setpoint` | BSB | °C | Read-only controller parameter 710. |
-| Heating circuit 712 reduced setpoint | `sensor.<device>_heating_circuit_712_reduced_setpoint` | BSB | °C | Read-only controller parameter 712. |
-| Heating circuit 714 frost protection setpoint | `sensor.<device>_heating_circuit_714_frost_protection_setpoint` | BSB | °C | Read-only controller parameter 714. |
-| Heating circuit 720 heating curve slope | `sensor.<device>_heating_circuit_720_heating_curve_slope` | BSB | — | Read-only controller parameter 720. |
-| Heating circuit 730 summer/winter heating limit | `sensor.<device>_heating_circuit_730_summer_winter_heating_limit` | BSB | °C | Read-only controller parameter 730. |
-| Heat pump flow temperature | `sensor.<device>_heat_pump_flow_temperature` | BSB | °C | Aerotop heat-pump flow temperature when the BSB datapoint is available. |
-| Heat pump return temperature | `sensor.<device>_heat_pump_return_temperature` | BSB | °C | Aerotop heat-pump return temperature. |
-| Heat pump flow setpoint | `sensor.<device>_heat_pump_flow_setpoint` | BSB | °C | Aerotop heat-pump flow target. |
-| Heat pump gas temperature | `sensor.<device>_heat_pump_gas_temperature` | BSB | °C | Heat-pump gas temperature datapoint. |
-| Source outlet temperature | `sensor.<device>_source_outlet_temperature` | BSB | °C | Heat-source outlet temperature. |
-| Hot gas temperature | `sensor.<device>_hot_gas_temperature` | BSB | °C | Heat-pump hot-gas temperature. |
-| Cooling circuit 2 flow temperature | `sensor.<device>_cooling_circuit_2_flow_temperature` | BSB cooling | °C | BSB diagnostics line 8786, created only when the gateway advertises cooling. |
-| Cooling circuit 2 flow setpoint | `sensor.<device>_cooling_circuit_2_flow_setpoint` | BSB cooling | °C | BSB diagnostics line 8787, created only when the gateway advertises cooling. |
-| Hydraulic pressure health | `sensor.<device>_hydraulic_pressure_health` | Diagnostic | level | Automated-monitoring health level returned by Remocon. |
-| Refrigerant circuit health | `sensor.<device>_refrigerant_circuit_health` | Diagnostic | level | Refrigerant-circuit health level returned by Remocon. |
-| Circulation health | `sensor.<device>_circulation_health` | Diagnostic | level | Circulation health level returned by Remocon. |
-| Combustion health | `sensor.<device>_combustion_health` | Diagnostic | level | Combustion health level returned by Remocon. |
-| Other appliance health | `sensor.<device>_other_appliance_health` | Diagnostic | level | Catch-all appliance health level returned by Remocon. |
-| Predictive maintenance notice count | `sensor.<device>_predictive_maintenance_notice_count` | Diagnostic | — | Number of active structured predictive-maintenance notices. Notice payloads remain in redacted diagnostics. |
-| Fixed day `<slot>` | `sensor.<device>_annual_energy_record_<slot>_date` | Diagnostic | date | Controller fixed date associated with energy-history slot 1–10. |
-| Yearly perf factor `<slot>` | `sensor.<device>_annual_performance_factor_<slot>` | Diagnostic | — | ELCO yearly performance factor for history slot 1–10. |
-| Heat delivered heating/DHW `<slot>` | `sensor.<device>_annual_heat_delivered_<type>_<slot>` | Diagnostic | kWh | Delivered heating or DHW energy for history slot 1–10. |
-| Refrigeration delivered `<slot>` | `sensor.<device>_annual_refrigeration_delivered_<slot>` | Diagnostic | kWh | Delivered cooling energy for history slot 1–10. |
-| Energy brought in heating/DHW/cooling `<slot>` | `sensor.<device>_annual_energy_input_<type>_<slot>` | Diagnostic | kWh | Electrical energy brought in for history slot 1–10. |
-
-Temperature sensors use Home Assistant's `temperature` device class and `measurement` state class.
-The read-only zone-mode sensor and low-level BSB 700/710/712/714/720/730 sensors are diagnostic
-entities and are disabled by default for new installations because their values overlap the normal
-select and number controls. They remain available for backward compatibility, controller
-troubleshooting, and cross-checking.
-
-The ten annual history slots are stable controller records rather than continuously increasing
-lifetime counters, so their kWh entities use Home Assistant's `energy` device class and `total`
-state class—not `total_increasing`. Slot 1 is enabled by default. Slots 2–10 are registered but
-disabled by default to avoid adding 72 historical entities to every dashboard; users can enable
-any older record in the entity registry. A controller `osv` or communication-error flag makes only
-the affected record unavailable.
-
-### Holiday calendars
-
-| Entity name | Typical entity ID pattern | Scope | Access | Description |
-|---|---|---:|---|---|
-| Zone `<zone>` holidays | `calendar.<device>_zone_<zone>_holidays` | Per zone | Read-only | All valid BSB holiday periods returned in `zoneData.holidays`. The calendar is on while a holiday period is active and exposes upcoming periods to calendar automations. |
-
-Remocon represents BSB holidays as per-zone periods with an index, start and end dates, and
-out-of-service/change flags. ELCO treats the configured final day as part of the holiday, while Home
-Assistant calendar ends are exclusive; the integration performs that one-day conversion. Deleted
-or out-of-service periods are not shown. The operating level is exposed separately because it is a
-zone-wide choice shared by the periods.
-
-Holiday editing is intentionally not enabled yet. The Remocon write operation sends the complete
-plant and zone state and also forces the zone to Automatic mode. Read support is therefore kept
-separate until create, update, and delete operations have been verified on a real populated gateway
-response. No holiday data is obtained by website scraping.
-
-### Binary sensors
-
-| Entity name | Typical entity ID pattern | Scope | Device class | Description |
-|---|---|---:|---|---|
-| Heat pump running | `binary_sensor.<device>_heat_pump_running` | Plant | Running | Indicates that the heat pump is reported as running. |
-| Controller error | `binary_sensor.<device>_controller_error` | Diagnostic | Problem | Turns on when the bus-error endpoint reports records. Up to ten current records are included in the entity attributes. |
-| Flame on | `binary_sensor.<device>_flame_on` | Plant | Running | Burner/flame state when supplied by the controller. |
-| Domestic hot water enabled | `binary_sensor.<device>_domestic_hot_water_enabled` | Plant | Running | Whether domestic-hot-water operation is enabled. |
-| Outside temperature sensor problem | `binary_sensor.<device>_outside_temperature_sensor_problem` | Plant | Problem | Controller error flag for the outdoor probe. |
-| Domestic hot water temperature sensor problem | `binary_sensor.<device>_domestic_hot_water_temperature_sensor_problem` | Plant | Problem | Controller error flag for the DHW storage probe. |
-| Zone `<zone>` heat request | `binary_sensor.<device>_zone_<zone>_heat_request` | Per zone | Running | Controller demand flag for the zone. On systems with cooling support, the source value may represent a combined heating-or-cooling request. |
-| Zone `<zone>` heating active | `binary_sensor.<device>_zone_<zone>_heating_active` | Per zone | Running | Heating-active state returned for the zone. |
-| Zone `<zone>` cooling active | `binary_sensor.<device>_zone_<zone>_cooling_active` | Per zone | Running | Cooling-active state returned for the zone. |
-| Zone `<zone>` room temperature sensor problem | `binary_sensor.<device>_zone_<zone>_room_temperature_sensor_problem` | Per zone | Problem | Controller error flag for the room sensor. |
-
-### Advanced and backward-compatible controls
-
-The number and select entities expose the original Remocon control model directly. They are kept
-for precise configuration, unusual controller variants, existing dashboards, and automations that
-already reference their entity IDs. They now use Home Assistant's **Configuration** entity
-category, so the native thermostat and water-heater entities remain the primary device controls.
-No entity ID or unique ID is changed by this reclassification.
-
-If the native entities cover your use case, the comfort-temperature numbers and mode selects may
-be disabled in **Settings → Devices & services → Entities** without affecting the thermostat or
-water heater. Keep the reduced-temperature numbers enabled when you want to adjust the stored
-reduced/Eco levels independently.
-
-#### Number controls
-
-| Entity name | Typical entity ID pattern | Scope | Unit | Write behavior |
-|---|---|---:|---:|---|
-| Domestic hot water comfort temperature | `number.<device>_domestic_hot_water_comfort_temperature` | Plant | °C | Changes the normal DHW target while preserving the reduced target and current DHW mode. |
-| Domestic hot water reduced temperature | `number.<device>_domestic_hot_water_reduced_temperature` | Plant | °C | Changes the reduced DHW target while preserving the comfort target and current DHW mode. |
-| Zone `<zone>` comfort temperature | `number.<device>_zone_<zone>_comfort_temperature` | Per zone | °C | Changes the zone's comfort setpoint while preserving its reduced setpoint. |
-| Zone `<zone>` reduced temperature | `number.<device>_zone_<zone>_reduced_temperature` | Per zone | °C | Changes the zone's reduced setpoint while preserving its comfort setpoint. |
-
-The controls use Remocon-provided minimum, maximum, and step values when present. The integration
-also rejects a comfort temperature below its corresponding reduced temperature.
-
-#### Select controls
-
-| Entity name | Typical entity ID pattern | Scope | Write behavior |
-|---|---|---:|---|
-| Domestic hot water mode | `select.<device>_domestic_hot_water_mode` | Plant | Changes the DHW operating mode while preserving both DHW temperature targets. |
-| Zone `<zone>` mode | `select.<device>_zone_<zone>_mode` | Per zone | Changes the operating mode of that heating zone while preserving required plant values. |
-
-Mode names and the number of available choices are supplied by Remocon and can differ between
-controllers, firmware versions, and account languages. A select is not created if the gateway does
-not return a list of allowed choices. These selects and the native controls call the same
-coordinator methods; changing one updates the other after the normal post-command refresh rather
-than issuing a duplicate command.
+See the **[complete entity reference](docs/entities.md)** before enabling large diagnostic or energy
+groups. Existing entity IDs and existing enabled/disabled choices are preserved during upgrades;
+new defaults apply only when an entity is first registered.
 
 ## Read-only capability discovery
 
@@ -600,6 +416,9 @@ GitHub Actions additionally runs Home Assistant hassfest and HACS repository val
 
 - Use [GitHub Issues](https://github.com/thomasgregg/elco-aerotop/issues) for reproducible defects
   and compatibility reports.
+- Testing reports for write controls, holiday calendars, and schedule discovery are especially
+  welcome. Please say exactly what was tested, what the ELCO controller or official application
+  showed before and after, and whether Home Assistant matched it.
 - Pull requests should include tests for parser changes and every new write payload.
 
 ## Disclaimer

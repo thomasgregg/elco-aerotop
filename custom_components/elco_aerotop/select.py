@@ -14,6 +14,7 @@ from .entity import ElcoAerotopEntity
 class ElcoDhwModeSelect(ElcoAerotopEntity, SelectEntity):
     _attr_name = "Domestic hot water mode"
     _attr_entity_category = EntityCategory.CONFIG
+    _attr_entity_registry_enabled_default = False
 
     def __init__(self, coordinator: ElcoDataUpdateCoordinator) -> None:
         super().__init__(coordinator, "dhw_mode")
@@ -35,6 +36,7 @@ class ElcoZoneModeSelect(ElcoAerotopEntity, SelectEntity):
     """Control a heating-zone mode."""
 
     _attr_entity_category = EntityCategory.CONFIG
+    _attr_entity_registry_enabled_default = False
 
     def __init__(self, coordinator: ElcoDataUpdateCoordinator, zone_number: int) -> None:
         super().__init__(coordinator, f"zone_{zone_number}_mode")

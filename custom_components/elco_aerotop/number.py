@@ -25,9 +25,12 @@ class ElcoTemperatureNumber(ElcoAerotopEntity, NumberEntity):
         name: str,
         variable_fn,
         write_fn,
+        *,
+        enabled_default: bool = True,
     ) -> None:
         super().__init__(coordinator, key)
         self._attr_name = name
+        self._attr_entity_registry_enabled_default = enabled_default
         self._variable_fn = variable_fn
         self._write_fn = write_fn
 
@@ -70,6 +73,7 @@ async def async_setup_entry(
                 "Domestic hot water comfort temperature",
                 lambda data: data.plant.dhw_comfort_temperature,
                 lambda value: coordinator.async_set_dhw(comfort=value),
+                enabled_default=False,
             )
         )
     if coordinator.data.plant.dhw_reduced_temperature.value is not None:
@@ -94,6 +98,7 @@ async def async_setup_entry(
                     lambda value, zone=zone_number: coordinator.async_set_zone_temperature(
                         zone, "comfort", value
                     ),
+                    enabled_default=False,
                 )
             )
         if zone.reduced_temperature.value is not None:

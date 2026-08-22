@@ -297,34 +297,46 @@ async def async_setup_entry(
                 "cooling_comfort_temperature",
                 "cooling comfort temperature",
                 zone.cooling_comfort_temperature.value,
+                EntityCategory.CONFIG,
+                False,
             ),
             (
                 "cooling_reduced_temperature",
                 "cooling reduced temperature",
                 zone.cooling_reduced_temperature.value,
+                EntityCategory.CONFIG,
+                False,
             ),
             (
                 "heating_protection_temperature",
                 "heating protection temperature",
                 zone.heating_protection_temperature,
+                EntityCategory.CONFIG,
+                False,
             ),
             (
                 "cooling_protection_temperature",
                 "cooling protection temperature",
                 zone.cooling_protection_temperature,
+                EntityCategory.CONFIG,
+                False,
             ),
             (
                 "heating_holiday_temperature",
                 "heating holiday temperature",
                 zone.heating_holiday_temperature,
+                EntityCategory.CONFIG,
+                False,
             ),
             (
                 "cooling_holiday_temperature",
                 "cooling holiday temperature",
                 zone.cooling_holiday_temperature,
+                EntityCategory.CONFIG,
+                False,
             ),
         )
-        for field, label, current_value in zone_temperature_specs:
+        for field, label, current_value, entity_category, enabled_default in zone_temperature_specs:
             if current_value is None:
                 continue
             if field.startswith("cooling_") and not has_cooling:
@@ -338,6 +350,8 @@ async def async_setup_entry(
                         state, zone_id, attribute
                     ),
                     temperature=True,
+                    entity_category=entity_category,
+                    enabled_default=enabled_default,
                 )
             )
 
@@ -352,15 +366,40 @@ async def async_setup_entry(
                         if state.zones[zone_id].use_reduced_operation_mode_on_holiday
                         else "Frost protection"
                     ),
+                    entity_category=EntityCategory.CONFIG,
                 )
             )
 
-        for item_id, key_suffix, label in (
-            ("HeatingFlowTemp", "heating_flow_temperature", "heating flow temperature"),
-            ("HeatingFlowOffset", "heating_flow_offset", "heating flow offset"),
-            ("CoolingFlowTemp", "cooling_flow_temperature", "cooling flow temperature"),
-            ("CoolingFlowOffset", "cooling_flow_offset", "cooling flow offset"),
-            ("ZoneDeroga", "derogation_temperature", "derogation temperature"),
+        for item_id, key_suffix, label, entity_category, enabled_default in (
+            (
+                "HeatingFlowTemp",
+                "heating_flow_temperature",
+                "heating flow temperature",
+                None,
+                True,
+            ),
+            (
+                "HeatingFlowOffset",
+                "heating_flow_offset",
+                "heating flow offset",
+                EntityCategory.CONFIG,
+                False,
+            ),
+            (
+                "CoolingFlowTemp",
+                "cooling_flow_temperature",
+                "cooling flow temperature",
+                None,
+                True,
+            ),
+            (
+                "CoolingFlowOffset",
+                "cooling_flow_offset",
+                "cooling flow offset",
+                EntityCategory.CONFIG,
+                False,
+            ),
+            ("ZoneDeroga", "derogation_temperature", "derogation temperature", None, True),
         ):
             if not _has_system_item(data, item_id, zone_number):
                 continue
@@ -373,6 +412,8 @@ async def async_setup_entry(
                         state.discovery.system_value(source, zone_id)
                     ),
                     temperature=True,
+                    entity_category=entity_category,
+                    enabled_default=enabled_default,
                 )
             )
 
@@ -474,17 +515,38 @@ async def async_setup_entry(
                 )
             )
 
-    for source, key, name in (
-        ("heat_pump_flow_temperature", "heat_pump_flow_temperature", "Heat pump flow temperature"),
+    for source, key, name, diagnostic in (
+        (
+            "heat_pump_flow_temperature",
+            "heat_pump_flow_temperature",
+            "Heat pump flow temperature",
+            False,
+        ),
         (
             "heat_pump_return_temperature",
             "heat_pump_return_temperature",
             "Heat pump return temperature",
+            False,
         ),
-        ("heat_pump_flow_setpoint", "heat_pump_flow_setpoint", "Heat pump flow setpoint"),
-        ("heat_pump_gas_temperature", "heat_pump_gas_temperature", "Heat pump gas temperature"),
-        ("source_outlet_temperature", "source_outlet_temperature", "Source outlet temperature"),
-        ("hot_gas_temperature", "hot_gas_temperature", "Hot gas temperature"),
+        (
+            "heat_pump_flow_setpoint",
+            "heat_pump_flow_setpoint",
+            "Heat pump flow setpoint",
+            False,
+        ),
+        (
+            "heat_pump_gas_temperature",
+            "heat_pump_gas_temperature",
+            "Heat pump gas temperature",
+            True,
+        ),
+        (
+            "source_outlet_temperature",
+            "source_outlet_temperature",
+            "Source outlet temperature",
+            True,
+        ),
+        ("hot_gas_temperature", "hot_gas_temperature", "Hot gas temperature", True),
     ):
         address = BSB_ENTITY_ADDRESSES[source]
         if address not in data.discovery.bsb_points and not features.get("hpSys", False):
@@ -496,7 +558,9 @@ async def async_setup_entry(
                 name,
                 lambda state, bsb_address=address: _as_number(_bsb_value(state, bsb_address)),
                 temperature=True,
+                entity_category=EntityCategory.DIAGNOSTIC if diagnostic else None,
                 available_fn=lambda state, bsb_address=address: _bsb_available(state, bsb_address),
+                enabled_default=not diagnostic,
             )
         )
 
@@ -521,9 +585,11 @@ async def async_setup_entry(
                     name,
                     lambda state, bsb_address=address: _as_number(_bsb_value(state, bsb_address)),
                     temperature=True,
+                    entity_category=EntityCategory.DIAGNOSTIC,
                     available_fn=lambda state, bsb_address=address: _bsb_available(
                         state, bsb_address
                     ),
+                    enabled_default=False,
                 )
             )
 
@@ -536,7 +602,6 @@ async def async_setup_entry(
         ("energy_input_cooling", "Energy brought in cooling"),
     )
     for slot, addresses in BSB_ENERGY_HISTORY_ADDRESSES.items():
-        enabled = slot == 1
         date_address = addresses["record_date"]
         entities.append(
             ElcoSensor(
@@ -551,7 +616,7 @@ async def async_setup_entry(
                 available_fn=lambda state, bsb_address=date_address: _bsb_available(
                     state, bsb_address
                 ),
-                enabled_default=enabled,
+                enabled_default=False,
             )
         )
         factor_address = addresses["performance_factor"]
@@ -568,7 +633,7 @@ async def async_setup_entry(
                 available_fn=lambda state, bsb_address=factor_address: _bsb_available(
                     state, bsb_address
                 ),
-                enabled_default=enabled,
+                enabled_default=False,
             )
         )
         for field, label in energy_fields:
@@ -584,7 +649,7 @@ async def async_setup_entry(
                     available_fn=lambda state, bsb_address=address: _bsb_available(
                         state, bsb_address
                     ),
-                    enabled_default=enabled,
+                    enabled_default=False,
                 )
             )
 
