@@ -2,6 +2,11 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.2.3
+
+- Remove the device `configuration_url`. Home Assistant rendered it as a generic **Visit** button,
+  which was unnecessary and unclear for this integration.
+
 ## 0.2.2
 
 - Add the native plant-list endpoint for gateway serial, plant name, structured location, firmware,

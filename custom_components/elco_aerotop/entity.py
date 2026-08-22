@@ -25,7 +25,4 @@ class ElcoAerotopEntity(CoordinatorEntity[ElcoDataUpdateCoordinator]):
             name=f"ELCO Aerotop {coordinator.api.gateway_id}",
             serial_number=str(metadata.get("gwSerial") or coordinator.api.gateway_id),
             sw_version=(str(metadata["gwFwVer"]) if metadata.get("gwFwVer") else None),
-            configuration_url=(
-                f"{coordinator.api.base_url}/BsbPlantDashboard/Index/{coordinator.api.gateway_id}"
-            ),
         )
