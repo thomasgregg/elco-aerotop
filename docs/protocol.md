@@ -1,0 +1,72 @@
+# Remocon R2 protocol notes
+
+Remocon.net does not publish a supported public API for this equipment. These notes document the
+browser-facing JSON calls used by this integration so that changes can be reviewed deliberately.
+Never include credentials, session cookies, gateway IDs, or complete real-device responses in an
+issue.
+
+## Authentication
+
+1. `GET /R2/Account/Login`
+2. Read the hidden `__RequestVerificationToken` value.
+3. Store it in the `__formRequestVerificationToken` cookie.
+4. `POST /R2/Account/Login` as JSON with `email`, `password`, `rememberMe`, and `language`.
+
+Each Home Assistant config entry owns an isolated cookie session. A `401`, `403`, or login-page
+HTML response invalidates the session and causes one controlled reauthentication attempt.
+
+## Reading state
+
+Configured zones are discovered through:
+
+```text
+GET /R2/Plant/Features/{gateway}?eagerMode=true
+```
+
+Plant and zone state comes from:
+
+```text
+POST /R2/PlantHomeBsb/GetData/{gateway}
+```
+
+The request selects a zone and independently requests the plant and zone blocks. A write always
+starts by reading uncached state.
+
+## Writing state
+
+Heating comfort and reduced setpoints are an atomic pair:
+
+```text
+POST /R2/PlantTimeProgBsb/SetTemperature/{gateway}
+```
+
+The body contains `zoneNum`, both temperatures, `plantData: null`, and the full fresh `zoneData`
+snapshot. Sending the temperatures through `PlantHomeBsb/SetData` can return success without
+propagating the values to the controller, so this integration does not do that.
+
+Domestic-hot-water comfort temperature, reduced temperature, and mode are also an atomic command:
+
+```text
+POST /R2/PlantDhwBsb/Save/{gateway}
+```
+
+Its body contains the full fresh `plantData` snapshot plus `comfortTemp`, `reducedTemp`, and
+`dhwMode`.
+
+A heating-zone mode uses:
+
+```text
+POST /R2/PlantHomeBsb/SetData/{gateway}
+```
+
+The body intentionally includes only the DHW values required by the endpoint, the selected zone
+and mode, and `viewModel.zoneNumber`. Unrelated writable fields are omitted.
+
+## Change policy
+
+- Do not expose arbitrary BSB writes.
+- Preserve companion values required by atomic endpoints.
+- Validate against limits and options returned by the gateway.
+- Add captured, anonymized fixtures and tests before supporting another writable field.
+- Treat an HTTP success as insufficient; a real-gateway test must confirm that the controller
+  retains the value after a fresh read.

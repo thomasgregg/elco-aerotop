@@ -1,0 +1,43 @@
+{
+  "title": "ELCO Aerotop",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to ELCO Remocon.net",
+        "description": "Enter your Remocon.net credentials and the gateway ID from your plant dashboard URL.",
+        "data": {
+          "username": "Email",
+          "password": "Password",
+          "gateway_id": "Gateway ID",
+          "base_url": "Remocon.net URL"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reconnect to ELCO Remocon.net",
+        "data": {
+          "username": "Email",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to Remocon.net",
+      "invalid_auth": "Invalid email or password",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "This gateway is already configured",
+      "reauth_successful": "Authentication updated successfully"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "ELCO Aerotop options",
+        "data": {
+          "scan_interval": "Polling interval in seconds"
+        }
+      }
+    }
+  }
+}

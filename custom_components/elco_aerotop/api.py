@@ -1,0 +1,314 @@
+"""Asynchronous client for the ELCO Remocon R2 JSON endpoints."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import re
+from html import unescape
+from typing import Any
+
+from aiohttp import ClientError, ClientResponse, ClientSession, ClientTimeout
+from yarl import URL
+
+from .const import (
+    FEATURES_PATH,
+    GET_DATA_PATH,
+    LOGIN_PATH,
+    REQUEST_TIMEOUT,
+    SAVE_DHW_PATH,
+    SET_DATA_PATH,
+    SET_TEMPERATURE_PATH,
+)
+from .models import ElcoData, PlantState, ZoneState
+
+_LOGGER = logging.getLogger(__name__)
+
+_TOKEN_RE = re.compile(
+    r'name=["\']__RequestVerificationToken["\'][^>]*value=["\']([^"\']+)',
+    re.IGNORECASE,
+)
+
+
+class ElcoApiError(Exception):
+    """Base error raised by the Remocon client."""
+
+
+class ElcoAuthenticationError(ElcoApiError):
+    """Authentication failed or expired."""
+
+
+class ElcoConnectionError(ElcoApiError):
+    """The Remocon service could not be reached."""
+
+
+class ElcoResponseError(ElcoApiError):
+    """The Remocon service returned an unexpected response."""
+
+
+class ElcoApiClient:
+    """Client for the browser-facing Remocon R2 API."""
+
+    def __init__(
+        self,
+        session: ClientSession,
+        username: str,
+        password: str,
+        gateway_id: str,
+        base_url: str,
+    ) -> None:
+        self._session = session
+        self._username = username
+        self._password = password
+        self.gateway_id = gateway_id.upper()
+        self.base_url = base_url.rstrip("/")
+        self._authenticated = False
+        self._auth_lock = asyncio.Lock()
+        self._timeout = ClientTimeout(total=REQUEST_TIMEOUT)
+
+    @property
+    def _json_headers(self) -> dict[str, str]:
+        return {
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Ajax-Request": "json",
+            "Content-Type": "application/json; charset=UTF-8",
+            "X-Requested-With": "XMLHttpRequest",
+        }
+
+    def _url(self, path: str) -> str:
+        return f"{self.base_url}{path}"
+
+    async def async_login(self) -> None:
+        """Create an authenticated R2 cookie session."""
+        async with self._auth_lock:
+            if self._authenticated:
+                return
+            try:
+                response = await self._session.get(
+                    self._url(LOGIN_PATH),
+                    timeout=self._timeout,
+                )
+                async with response:
+                    if response.status != 200:
+                        raise ElcoConnectionError(f"Login page returned HTTP {response.status}")
+                    html = await response.text()
+
+                token_match = _TOKEN_RE.search(html)
+                if token_match is None:
+                    raise ElcoResponseError("Login page did not contain an anti-forgery token")
+                token = unescape(token_match.group(1))
+                self._session.cookie_jar.update_cookies(
+                    {"__formRequestVerificationToken": token},
+                    response_url=URL(self.base_url),
+                )
+
+                response = await self._session.post(
+                    self._url(LOGIN_PATH),
+                    headers=self._json_headers,
+                    json={
+                        "email": self._username,
+                        "password": self._password,
+                        "rememberMe": False,
+                        "language": "English_Gb",
+                    },
+                    timeout=self._timeout,
+                )
+                async with response:
+                    payload = await self._decode_json(response, "login")
+                if not payload.get("ok"):
+                    raise ElcoAuthenticationError(
+                        str(payload.get("message") or "Wrong username or password")
+                    )
+                self._authenticated = True
+            except ElcoApiError:
+                self._authenticated = False
+                raise
+            except (ClientError, TimeoutError) as err:
+                self._authenticated = False
+                raise ElcoConnectionError("Unable to connect to Remocon") from err
+
+    async def _decode_json(self, response: ClientResponse, operation: str) -> dict[str, Any]:
+        if response.status in (401, 403):
+            raise ElcoAuthenticationError("Remocon session expired")
+        if response.status >= 400:
+            raise ElcoResponseError(f"{operation} returned HTTP {response.status}")
+        try:
+            payload = await response.json(content_type=None)
+        except (ValueError, TypeError) as err:
+            text = await response.text()
+            if "account/login" in text.lower() or 'id="loginform"' in text.lower():
+                raise ElcoAuthenticationError("Remocon session expired") from err
+            raise ElcoResponseError(f"{operation} did not return JSON") from err
+        if not isinstance(payload, dict):
+            raise ElcoResponseError(f"{operation} returned an unexpected payload")
+        return payload
+
+    async def _request_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        body: dict[str, Any] | list[Any] | None = None,
+        retry_auth: bool = True,
+    ) -> dict[str, Any]:
+        if not self._authenticated:
+            await self.async_login()
+        try:
+            response = await self._session.request(
+                method,
+                self._url(path),
+                headers=self._json_headers,
+                json=body,
+                timeout=self._timeout,
+            )
+            async with response:
+                payload = await self._decode_json(response, path)
+            if payload.get("ok") is False:
+                raise ElcoResponseError(str(payload.get("message") or f"{path} failed"))
+            return payload
+        except ElcoAuthenticationError:
+            self._authenticated = False
+            if not retry_auth:
+                raise
+            await self.async_login()
+            return await self._request_json(method, path, body=body, retry_auth=False)
+        except ElcoApiError:
+            raise
+        except (ClientError, TimeoutError) as err:
+            raise ElcoConnectionError(f"Unable to communicate with Remocon: {path}") from err
+
+    async def async_get_zone_numbers(self) -> list[int]:
+        """Fetch configured heating zone numbers, falling back to zone 1."""
+        payload = await self._request_json("GET", FEATURES_PATH.format(gateway_id=self.gateway_id))
+        data = payload.get("data", payload)
+        features = data.get("features", data) if isinstance(data, dict) else {}
+        zones = features.get("zones", []) if isinstance(features, dict) else []
+        numbers = sorted(
+            {
+                int(zone["num"])
+                for zone in zones
+                if isinstance(zone, dict)
+                and isinstance(zone.get("num"), int | float)
+                and not zone.get("isHidden", False)
+            }
+        )
+        return numbers or [1]
+
+    async def async_get_data(
+        self,
+        zone_numbers: list[int] | None = None,
+        *,
+        use_cache: bool = True,
+    ) -> ElcoData:
+        """Fetch plant and zone state."""
+        zones_to_fetch = zone_numbers or await self.async_get_zone_numbers()
+        plant_raw: dict[str, Any] | None = None
+        zones: dict[int, ZoneState] = {}
+
+        for index, zone_number in enumerate(zones_to_fetch):
+            payload = await self._request_json(
+                "POST",
+                GET_DATA_PATH.format(gateway_id=self.gateway_id),
+                body={
+                    "useCache": use_cache and index > 0,
+                    "zone": zone_number,
+                    "filter": {"progIds": None, "plant": index == 0, "zone": True},
+                },
+            )
+            data = payload.get("data") or {}
+            if not isinstance(data, dict):
+                raise ElcoResponseError("GetData returned invalid data")
+            if isinstance(data.get("plantData"), dict):
+                plant_raw = data["plantData"]
+            if isinstance(data.get("zoneData"), dict):
+                zones[zone_number] = ZoneState.parse(zone_number, data["zoneData"])
+
+        if plant_raw is None:
+            raise ElcoResponseError("GetData did not return plant data")
+        return ElcoData(self.gateway_id, PlantState.parse(plant_raw), zones)
+
+    async def async_set_zone_temperatures(
+        self,
+        zone: ZoneState,
+        *,
+        comfort: float,
+        reduced: float,
+    ) -> None:
+        """Write heating comfort and reduced temperatures as one atomic command."""
+        zone.comfort_temperature.validate(comfort)
+        zone.reduced_temperature.validate(reduced)
+        if comfort < reduced:
+            raise ValueError("Comfort temperature cannot be below reduced temperature")
+        await self._request_json(
+            "POST",
+            SET_TEMPERATURE_PATH.format(gateway_id=self.gateway_id),
+            body={
+                "zoneNum": zone.number,
+                "comfort": comfort,
+                "reduced": reduced,
+                "plantData": None,
+                "zoneData": zone.raw,
+            },
+        )
+
+    async def async_set_dhw(
+        self,
+        plant: PlantState,
+        *,
+        comfort: float,
+        reduced: float,
+        mode: int,
+    ) -> None:
+        """Write DHW temperatures and mode as one atomic command."""
+        plant.dhw_comfort_temperature.validate(comfort)
+        plant.dhw_reduced_temperature.validate(reduced)
+        allowed_modes = {option.value for option in plant.dhw_mode.options}
+        if allowed_modes and mode not in allowed_modes:
+            raise ValueError(f"Unsupported DHW mode: {mode}")
+        if comfort < reduced:
+            raise ValueError("DHW comfort temperature cannot be below reduced temperature")
+        await self._request_json(
+            "POST",
+            SAVE_DHW_PATH.format(gateway_id=self.gateway_id),
+            body={
+                "plantData": plant.raw,
+                "comfortTemp": comfort,
+                "reducedTemp": reduced,
+                "dhwMode": mode,
+            },
+        )
+
+    async def async_set_zone_mode(
+        self,
+        plant: PlantState,
+        zone: ZoneState,
+        *,
+        mode: int,
+    ) -> None:
+        """Write a heating-zone mode while preserving required plant values."""
+        allowed_modes = {option.value for option in zone.mode.options}
+        if allowed_modes and mode not in allowed_modes:
+            raise ValueError(f"Unsupported zone mode: {mode}")
+
+        dhw_comfort = plant.dhw_comfort_temperature.value
+        dhw_reduced = plant.dhw_reduced_temperature.value
+        dhw_mode = plant.dhw_mode.value
+        if dhw_comfort is None or dhw_reduced is None or dhw_mode is None:
+            raise ValueError("Remocon did not return the plant values required for a mode write")
+
+        await self._request_json(
+            "POST",
+            SET_DATA_PATH.format(gateway_id=self.gateway_id),
+            body={
+                "plantData": {
+                    "dhwComfortTemp": {"value": dhw_comfort},
+                    "dhwReducedTemp": {"value": dhw_reduced},
+                    "dhwMode": {"value": dhw_mode},
+                },
+                "zoneData": {
+                    "zone": zone.number,
+                    "mode": {"value": mode},
+                },
+                "viewModel": {"zoneNumber": zone.number},
+            },
+        )

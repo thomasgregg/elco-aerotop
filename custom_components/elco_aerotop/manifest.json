@@ -1,0 +1,13 @@
+{
+  "domain": "elco_aerotop",
+  "name": "ELCO Aerotop",
+  "codeowners": ["@thomasgregg"],
+  "config_flow": true,
+  "documentation": "https://github.com/thomasgregg/elco-aerotop",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/thomasgregg/elco-aerotop/issues",
+  "loggers": ["custom_components.elco_aerotop"],
+  "requirements": [],
+  "version": "0.1.0"
+}
