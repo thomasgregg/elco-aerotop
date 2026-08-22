@@ -114,7 +114,7 @@ require the current value, limits, or allowed options needed to send a validated
 | Heating circuit flow setpoint temperature | `sensor.<device>_heating_circuit_flow_setpoint_temperature` | Plant | °C | Current primary heating-flow target. |
 | Zone `<zone>` desired temperature | `sensor.<device>_zone_<zone>_desired_temperature` | Per zone | °C | Effective room-temperature target currently requested by the controller. |
 | Zone `<zone>` room temperature | `sensor.<device>_zone_<zone>_room_temperature` | Per zone | °C | Room temperature reported for the zone. The state is unknown if no room sensor is available. |
-| Zone `<zone>` mode | `sensor.<device>_zone_<zone>_mode` | Per zone | — | Read-only representation of the current controller mode. The label comes from Remocon when available. |
+| Zone `<zone>` mode | `sensor.<device>_zone_<zone>_mode` | Diagnostic | — | Backward-compatible read-only representation of the current controller mode. Disabled by default for new installations because the zone-mode select already exposes this state. |
 | Zone `<zone>` cooling comfort temperature | `sensor.<device>_zone_<zone>_cooling_comfort_temperature` | Per zone | °C | Cooling comfort target reported by `GetData`. |
 | Zone `<zone>` cooling reduced temperature | `sensor.<device>_zone_<zone>_cooling_reduced_temperature` | Per zone | °C | Cooling reduced target reported by `GetData`. |
 | Zone `<zone>` heating protection temperature | `sensor.<device>_zone_<zone>_heating_protection_temperature` | Per zone | °C | Heating frost/protection target. |
@@ -141,9 +141,10 @@ require the current value, limits, or allowed options needed to send a validated
 | Hot gas temperature | `sensor.<device>_hot_gas_temperature` | BSB | °C | Heat-pump hot-gas temperature. |
 
 Temperature sensors use Home Assistant's `temperature` device class and `measurement` state class.
-The low-level BSB 700/710/712/714/720/730 sensors are diagnostic entities and are disabled by
-default for new installations because their mode and setpoint values overlap the normal select and
-number controls. They remain available for controller troubleshooting and cross-checking.
+The read-only zone-mode sensor and low-level BSB 700/710/712/714/720/730 sensors are diagnostic
+entities and are disabled by default for new installations because their values overlap the normal
+select and number controls. They remain available for backward compatibility, controller
+troubleshooting, and cross-checking.
 
 ### Holiday calendars
 

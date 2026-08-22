@@ -2,6 +2,11 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.2.8
+
+- Mark the backward-compatible read-only zone-mode sensor as diagnostic and disable it by default
+  for new installations. The writable zone-mode select remains the primary state and control.
+
 ## 0.2.7
 
 - Add a read-only Home Assistant calendar for each zone's controller-backed BSB holiday periods,

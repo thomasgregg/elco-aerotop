@@ -254,6 +254,8 @@ async def async_setup_entry(
                     lambda state, zone_id=zone_number: (
                         state.zones[zone_id].mode.current_label or state.zones[zone_id].mode.value
                     ),
+                    entity_category=EntityCategory.DIAGNOSTIC,
+                    enabled_default=False,
                 )
             )
 
