@@ -233,6 +233,17 @@ def test_bsb_compound_date_uses_named_fields_and_rejects_placeholders() -> None:
     assert bsb_point_date(point) is None
 
 
+def test_bsb_date_parses_live_flattened_read_data_points_value() -> None:
+    assert bsb_point_date(
+        {
+            "valueAsString": "2026/06/30 *:*:*",
+            "fields": None,
+            "osv": False,
+        }
+    ) == date(2026, 6, 30)
+    assert bsb_point_date({"valueAsString": "--/--/-- *:*:*", "fields": None}) is None
+
+
 def test_parse_current_bsb_holiday_fields_and_flags() -> None:
     fixture = json.loads((Path(__file__).parent / "fixtures" / "bsb_holidays.json").read_text())
     raw = fixture["holidays"][0]

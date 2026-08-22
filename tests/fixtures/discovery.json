@@ -55,18 +55,44 @@
   },
   "schedules": {
     "ChZn1": {
-      "plans": [
+      "timeProgs": [
         {
-          "days": [1, 2, 3, 4, 5],
-          "slices": [
-            {"from": 360, "temp": 1},
-            {"from": 1320, "temp": 0}
-          ]
+          "progId": 1,
+          "weeklyPlan": {
+            "plans": [
+              {
+                "days": [1, 2, 3, 4, 5, 6, 0],
+                "slices": [
+                  {"from": 0, "temp": 0},
+                  {"from": 360, "temp": 1},
+                  {"from": 1320, "temp": 0}
+                ]
+              }
+            ],
+            "allowedTemp": [0, 1],
+            "defaultTemp": 0,
+            "maxSwitches": 0,
+            "ext": false,
+            "pilot": null
+          }
         }
-      ]
+      ],
+      "plantData": null,
+      "zoneData": {"holidays": []}
     },
     "Dhw": {
-      "plans": []
+      "timeProgs": [
+        {
+          "progId": 7,
+          "weeklyPlan": {
+            "plans": [],
+            "allowedTemp": [0, 1],
+            "defaultTemp": 0
+          }
+        }
+      ],
+      "plantData": {},
+      "zoneData": null
     }
   },
   "metering": {
@@ -108,6 +134,33 @@
     "2950646": {
       "address": "2950646",
       "valueAsNumber": 0.8
+    },
+    "333481": {
+      "address": "333481",
+      "valueAsNumber": null,
+      "valueAsString": "2026/06/30 *:*:*",
+      "fields": null,
+      "osv": false,
+      "bsbErrorCode": 0,
+      "commErrorCode": 0
+    },
+    "333491": {
+      "address": "333491",
+      "valueAsNumber": 0.0,
+      "valueAsString": null,
+      "fields": null,
+      "osv": true,
+      "bsbErrorCode": 0,
+      "commErrorCode": 0
+    },
+    "333521": {
+      "address": "333521",
+      "valueAsNumber": 40.0,
+      "valueAsString": null,
+      "fields": null,
+      "osv": false,
+      "bsbErrorCode": 0,
+      "commErrorCode": 0
     }
   },
   "bsb_plant_data": {

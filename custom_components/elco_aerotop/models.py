@@ -126,19 +126,31 @@ def bsb_point_date(point: Any) -> date | None:
     if not isinstance(point, dict):
         return None
     fields = point.get("fields")
-    if not isinstance(fields, list):
-        return None
+    if isinstance(fields, list):
+        components: dict[str, int] = {}
+        positional = ("yyyy", "MM", "dd")
+        for index, field_name in enumerate(positional):
+            value = bsb_point_field_value(point, field_name, index)
+            try:
+                components[field_name] = int(value)
+            except (TypeError, ValueError):
+                break
+        else:
+            try:
+                return date(components["yyyy"], components["MM"], components["dd"])
+            except ValueError:
+                pass
 
-    components: dict[str, int] = {}
-    positional = ("yyyy", "MM", "dd")
-    for index, field_name in enumerate(positional):
-        value = bsb_point_field_value(point, field_name, index)
-        try:
-            components[field_name] = int(value)
-        except (TypeError, ValueError):
-            return None
+    # Live ReadDataPoints responses flatten compound fixed-day values to a
+    # localized string such as ``2026/06/30 *:*:*`` and return ``fields: null``.
+    rendered = bsb_point_value(point)
+    if not isinstance(rendered, str):
+        return None
+    match = re.match(r"^\s*(\d{4})[/.\-](\d{1,2})[/.\-](\d{1,2})(?:\s|$)", rendered)
+    if match is None:
+        return None
     try:
-        return date(components["yyyy"], components["MM"], components["dd"])
+        return date(*(int(component) for component in match.groups()))
     except ValueError:
         return None
 

@@ -2,6 +2,14 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.2.18
+
+- Parse the live annual-record date shape returned by `ReadDataPoints`
+  (`YYYY/MM/DD *:*:*` with `fields: null`) while retaining the compound-field fallback for other
+  firmware versions.
+- Update the anonymized schedule and energy fixtures to the exact live BSB response envelopes
+  observed after v0.2.17 installation.
+
 ## 0.2.17
 
 - Split annual BSB energy history into ten independent eight-address reads after live v0.2.16
