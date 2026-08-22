@@ -270,7 +270,9 @@ suppress unrelated data.
 ## Energy-history entities
 
 The controller exposes ten fixed history slots with eight fields each: 80 diagnostic entities. All
-are registered **disabled by default**, including slot 1.
+are registered **disabled by default**, including slot 1. Every display name starts with
+`Annual energy record <slot> –` so Home Assistant sorts the eight children of each record together.
+This applies consistently to all ten records, not only to the first or latest record.
 
 | Per-slot entity | Typical entity ID | Unit | Meaning |
 |---|---|---:|---|
@@ -283,15 +285,62 @@ are registered **disabled by default**, including slot 1.
 | Energy brought in DHW `<slot>` | `sensor.<device>_annual_energy_input_dhw_<slot>` | kWh | Input energy assigned to hot water |
 | Energy brought in cooling `<slot>` | `sensor.<device>_annual_energy_input_cooling_<slot>` | kWh | Input energy assigned to cooling |
 
-Display names follow the authenticated ELCO energy-meter page. Internal entity IDs retain the
-earlier annual wording so histories, automations, and dashboards do not break.
+Existing unique IDs are unchanged, so upgrades preserve entity IDs, history, registry settings,
+automations, and dashboards. Home Assistant may derive a grouped object ID from the new display
+name only when an entity is registered for the first time.
+
+### Record hierarchy and OFF flags
+
+Remocon presents every slot as one parent record. For example, record 8 uses line 3169 for its
+fixed day and yearly performance factor, followed by lines 3170–3175 for its six energy values:
+
+```text
+Annual energy record 8 — line 3169
+├── Fixed day
+├── Yearly performance factor
+├── 3170 Heat delivered heating
+├── 3171 Heat delivered DHW
+├── 3172 Refrigeration delivered
+├── 3173 Energy brought in heating
+├── 3174 Energy brought in DHW
+└── 3175 Energy brought in cooling
+```
+
+The same structure applies to every stored year:
+
+| Record | Parent line: fixed day + yearly factor | Six child energy lines |
+|---:|---:|---:|
+| 1 (newest) | 3120 | 3121–3126 |
+| 2 | 3127 | 3128–3133 |
+| 3 | 3134 | 3135–3140 |
+| 4 | 3141 | 3142–3147 |
+| 5 | 3148 | 3149–3154 |
+| 6 | 3155 | 3156–3161 |
+| 7 | 3162 | 3163–3168 |
+| 8 | 3169 | 3170–3175 |
+| 9 | 3176 | 3177–3182 |
+| 10 (oldest) | 3183 | 3184–3189 |
+
+The repeated visible line number does not mean that fixed day and performance factor are one JSON
+value: Remocon returns them at separate verified internal addresses. Each of the eight children
+also has its own BSB `osv` (out-of-service) flag. An unchecked **OFF** box means `osv: false` and
+the child is usable; a checked **OFF** box means `osv: true` and only that corresponding Home
+Assistant entity becomes unavailable. The integration reads these flags but does not expose them
+as writable switches because the controller's per-field service write contract has not been
+verified.
+
+Slot 1 is always the newest stored record and older records move back one position. Values cover
+the interval between two fixed days rather than being lifetime counters. Siemens defines yearly
+performance factor as delivered thermal energy divided by input energy over the annual interval;
+it is unavailable when the required delivered-heat or input-energy metering is not configured.
+See the [Siemens RVS61 controller manual, pages 245–255](https://www.siemensbolt.hu/doc/siemens/pdf/RVS61_F%20series_U2355en_054.pdf).
 
 These are controller-owned snapshots, not continuously increasing lifetime meters. Their kWh
 sensors use the energy device class and total state class, not total_increasing. They are useful
 for comparing ELCO's stored historic heating, DHW, cooling, input, output, and performance records.
 They are **not suitable as direct Home Assistant Energy Dashboard inputs**, which require a
 continuously increasing total or interval statistics with defined reset behavior. A communication
-or out-of-service flag affects only its record.
+or out-of-service flag affects only its corresponding child entity.
 
 ## Why an expected entity may be absent or unavailable
 

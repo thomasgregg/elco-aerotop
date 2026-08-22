@@ -4,6 +4,14 @@ All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
 ## Unreleased
 
+## 0.3.5
+
+- Group every fixed day, yearly performance factor, and annual energy value under a consistent
+  `Annual energy record <slot> –` display-name prefix for all ten controller history records while
+  preserving their existing unique IDs and availability behavior.
+- Document the Remocon parent/child hierarchy, independent per-field OFF/`osv` flags, slot order,
+  annual-interval semantics, and performance-factor requirements.
+
 ## 0.3.4
 
 - Expose Remocon's read-only **Time of day and date → Clock time** BSB value as a diagnostic

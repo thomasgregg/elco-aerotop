@@ -90,7 +90,8 @@ All entities belong to the ELCO Aerotop device, and the exact set is determined 
 capabilities. The default device page focuses on native thermostat and hot-water controls,
 everyday measurements, and important fault information. Alternative controls, specialist
 diagnostics, low-level BSB values, and the 80 historical energy entities are available but mostly
-disabled by default to avoid overwhelming a normal installation.
+disabled by default to avoid overwhelming a normal installation. All eight entities belonging to
+each annual energy record now share a common display-name prefix.
 
 The [entity reference](docs/entities.md) contains the complete tables, entity-ID patterns, default
 states, creation conditions, read/write behavior, and explanations of maintenance, holiday, and
