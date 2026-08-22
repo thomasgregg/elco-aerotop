@@ -2,6 +2,19 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.2.16
+
+- Replace the non-responsive mobile schedule route with Remocon's verified BSB-native
+  `PlantTimeProgBsb/GetData` JSON contract and its real heating, cooling, and DHW program IDs.
+- Add ten annual energy-history records discovered from structured BSB menu metadata: fixed date,
+  yearly performance factor, delivered heating/DHW/cooling energy, and input heating/DHW/cooling
+  energy. Slot 1 is enabled by default; older slots are disabled by default but remain available.
+- Add five automated-monitoring health sensors and a predictive-maintenance notice count from the
+  structured monitoring drawer endpoint.
+- Capture structured BSB boiler/appliance data, verified schedule-default values, clock time, and
+  holiday operating level in redacted diagnostics.
+- Keep all runtime reads JSON-only; no Remocon page content is parsed for entity state.
+
 ## 0.2.15
 
 - Supersede 0.2.14 with the same BSB line 7000 maintenance support and a formatting-only test-file

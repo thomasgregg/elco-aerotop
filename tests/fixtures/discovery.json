@@ -78,6 +78,23 @@
     "nextMaintenance": "2026-10-01",
     "technician": "<redacted>"
   },
+  "automated_monitoring": {
+    "gatewayId": "<redacted>",
+    "predictiveMaintenances": [],
+    "automatedMonitoring": {
+      "urgencyLevel": 0,
+      "connectionStability": 3,
+      "hydraulicPressure": 3,
+      "refrigerantCircuit": 3,
+      "circulation": 3,
+      "combustion": 3,
+      "other": 3
+    }
+  },
+  "bsb_boiler_data": {
+    "model": "RVS61",
+    "serial": "<redacted>"
+  },
   "bus_errors": [],
   "bsb_points": {
     "2950516": {
@@ -115,6 +132,8 @@
     "schedule:Dhw": "available",
     "metering": "available",
     "maintenance": "available",
+    "automated_monitoring": "available",
+    "bsb_boiler_data": "available",
     "bus_errors": "available",
     "bsb_points": "available",
     "bsb_plant_data": "available",

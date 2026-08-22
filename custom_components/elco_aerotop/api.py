@@ -13,9 +13,13 @@ from aiohttp import ClientError, ClientResponse, ClientSession, ClientTimeout
 from yarl import URL
 
 from .const import (
+    AUTOMATED_MONITORING_PATH,
+    BSB_BOILER_DATA_PATH,
     BSB_DISCOVERY_ADDRESSES,
     BSB_PLANT_DATA_PATH,
     BSB_READ_PATH,
+    BSB_TIME_PROGRAM_IDS,
+    BSB_TIME_PROGRAM_PATH,
     BUS_ERRORS_PATH,
     DATA_ITEMS_PATH,
     FEATURES_PATH,
@@ -32,7 +36,6 @@ from .const import (
     SAVE_DHW_PATH,
     SET_DATA_PATH,
     SET_TEMPERATURE_PATH,
-    TIME_PROGRAM_PATH,
     USER_AGENT,
     ZONE_DATA_ITEM_IDS,
 )
@@ -409,12 +412,27 @@ class ElcoApiClient:
 
     async def async_get_schedule(self, program: str) -> Any:
         """Fetch one read-only weekly time program."""
-        return await self._request_payload(
-            "GET",
-            TIME_PROGRAM_PATH.format(gateway_id=self.gateway_id, program=program),
+        program_id = BSB_TIME_PROGRAM_IDS.get(program)
+        if program_id is None:
+            raise ElcoResponseError(f"Unsupported BSB time program: {program}")
+        is_dhw = program == "Dhw"
+        zone = 0 if is_dhw or program == "Extra" else int(re.search(r"\d+$", program).group())
+        payload = await self._request_payload(
+            "POST",
+            BSB_TIME_PROGRAM_PATH.format(gateway_id=self.gateway_id),
+            body={
+                "zone": zone,
+                "filter": {
+                    "progIds": [program_id],
+                    "plant": is_dhw,
+                    "zone": not is_dhw,
+                },
+                "useCache": True,
+            },
             retry_auth=False,
             invalidate_auth=False,
         )
+        return payload.get("data", payload) if isinstance(payload, dict) else payload
 
     async def async_get_metering(
         self,
@@ -437,6 +455,26 @@ class ElcoApiClient:
         payload = await self._request_payload(
             "GET",
             MAINTENANCE_PATH.format(gateway_id=self.gateway_id),
+            retry_auth=False,
+            invalidate_auth=False,
+        )
+        return payload.get("data", payload) if isinstance(payload, dict) else payload
+
+    async def async_get_automated_monitoring(self) -> Any:
+        """Fetch structured predictive-maintenance and appliance-health data."""
+        payload = await self._request_payload(
+            "GET",
+            AUTOMATED_MONITORING_PATH.format(gateway_id=self.gateway_id),
+            retry_auth=False,
+            invalidate_auth=False,
+        )
+        return payload.get("data", payload) if isinstance(payload, dict) else payload
+
+    async def async_get_bsb_boiler_data(self) -> Any:
+        """Fetch structured BSB appliance identification and boiler data."""
+        payload = await self._request_payload(
+            "GET",
+            BSB_BOILER_DATA_PATH.format(gateway_id=self.gateway_id),
             retry_auth=False,
             invalidate_auth=False,
         )

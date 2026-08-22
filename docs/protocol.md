@@ -55,9 +55,11 @@ The following calls expand model discovery without enabling any corresponding wr
 | System data | `POST /api/v2/remote/dataItems/{gateway}/get?umsys=si` |
 | Native BSB plant snapshot | `GET /api/v2/remote/bsbPlantData/{gateway}` |
 | Mobile menu items | `GET /api/v2/menuItems/{gateway}?menuItems={id}` for one feature-selected documented ID |
-| Time programs | `GET /api/v2/remote/timeProgs/{gateway}/{program}?umsys=si` |
+| Time programs | `POST /R2/PlantTimeProgBsb/GetData/{gateway}` with a program-ID filter |
 | Metering | `POST /R2/PlantMetering/GetData/{gateway}` |
 | Maintenance | `GET /R2/PlantData/GetMaintenanceData?id={gateway}` |
+| Automated monitoring | `GET /R2/AutomatedMonitoring/GetDrawerData/{gateway}` |
+| BSB appliance data | `GET /R2/PlantData/GetBsbBoilerData?id={gateway}` |
 | Controller errors | `GET /api/v2/busErrors?gatewayId={gateway}&blockingOnly=False&culture=en-US` |
 | BSB parameters | `GET /R2/PlantMenuBsb/ReadDataPoints/{gateway}?addresses=...` |
 
@@ -71,6 +73,15 @@ updates.
 The cloud maintenance endpoint and the controller's BSB `7000 – Message` group are different data
 sources. BSB maintenance-code entities require verified internal datapoint IDs; the integration
 does not infer them from the visible line number.
+
+The BSB time-program request uses program IDs 1–6 for heating zones, 7 for DHW, 8 for the extra
+program, and 9–14 for cooling zones. Heating/cooling requests select the matching zone block; DHW
+selects the plant block. The similarly named mobile `timeProgs` route is not used for BSB plants.
+
+Annual energy history is also a BSB menu family, not the cloud metering response. Ten verified
+fixed-date slots are read as one isolated 80-address request. Each slot has a record date, yearly
+performance factor, delivered heating/DHW/cooling energy, and input heating/DHW/cooling energy.
+This read remains applicable when `Features.hasMetering` is false.
 
 The menu-item IDs are a bounded mobile-API catalog, not raw BSB addresses. Reads are made one ID at
 a time because some controller families reject an unsupported ID rather than omitting it. Capturing

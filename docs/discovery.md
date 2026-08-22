@@ -17,10 +17,14 @@ Home Assistant diagnostics contain:
 - every returned item from the base service range and feature-selected mobile menu families;
 - supported heating, cooling, and domestic-hot-water programs;
 - metering, maintenance, and controller-error responses;
+- automated-monitoring health levels and predictive-maintenance notices;
+- structured BSB boiler/appliance data;
 - values returned for allowlisted heating-circuit and Aerotop BSB datapoints, queried in isolated
   JSON API groups;
 - the four fields returned by BSB line 7000 at verified internal address `327836`, queried in its
   own isolated read-only group;
+- all ten verified annual BSB energy-history records (fixed date, yearly performance factor, three
+  delivered-energy and three input-energy values per slot);
 - a probe-status map showing `available`, `partially_available`, or an unavailable error class; and
 - a `response_schema` inventory of every observed JSON path and Python value type.
 
@@ -28,6 +32,11 @@ Slow controller-backed families run after config-entry and entity-platform setup
 diagnostic status is `deferred:background` and changes to `available`, `partially_available`, or an
 error class when the background pass completes. This prevents an optional schedule or controller
 timeout from delaying Home Assistant startup.
+
+The schedule capture uses the BSB web application's structured `PlantTimeProgBsb/GetData` POST
+contract. The older mobile `timeProgs` route is not used because it is not the schedule source for
+BSB controllers. Annual energy history is queried independently from the cloud metering flag;
+current gateways can expose BSB history while reporting `hasMetering: false`.
 
 The diagnostics implementation recursively redacts configured credentials and gateway IDs,
 common identity and location fields, serial numbers, technician details, and matching identifiers

@@ -67,6 +67,8 @@ def test_anonymized_discovery_fixture_covers_every_endpoint_family() -> None:
         "schedules",
         "metering",
         "maintenance",
+        "automated_monitoring",
+        "bsb_boiler_data",
         "bus_errors",
         "bsb_points",
         "bsb_plant_data",

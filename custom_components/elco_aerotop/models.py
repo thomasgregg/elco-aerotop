@@ -121,6 +121,28 @@ def bsb_point_field_value(point: Any, name: str, index: int) -> Any:
     return None
 
 
+def bsb_point_date(point: Any) -> date | None:
+    """Return the calendar date stored in a compound BSB datapoint."""
+    if not isinstance(point, dict):
+        return None
+    fields = point.get("fields")
+    if not isinstance(fields, list):
+        return None
+
+    components: dict[str, int] = {}
+    positional = ("yyyy", "MM", "dd")
+    for index, field_name in enumerate(positional):
+        value = bsb_point_field_value(point, field_name, index)
+        try:
+            components[field_name] = int(value)
+        except (TypeError, ValueError):
+            return None
+    try:
+        return date(components["yyyy"], components["MM"], components["dd"])
+    except ValueError:
+        return None
+
+
 def bsb_point_available(point: Any) -> bool:
     """Return whether Remocon reports a currently readable BSB datapoint."""
     if not isinstance(point, dict):
@@ -383,6 +405,8 @@ class ReadOnlyDiscovery:
     schedules: dict[str, Any] = field(default_factory=dict)
     metering: Any = None
     maintenance: Any = None
+    automated_monitoring: Any = None
+    bsb_boiler_data: Any = None
     bus_errors: Any = None
     bsb_points: dict[str, Any] = field(default_factory=dict)
     bsb_plant_data: dict[str, Any] = field(default_factory=dict)

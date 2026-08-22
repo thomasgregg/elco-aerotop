@@ -122,14 +122,14 @@ async def test_login_uses_antiforgery_cookie_and_json_credentials() -> None:
     await client.async_login()
 
     assert session.cookie_jar.cookies["__formRequestVerificationToken"] == "token-123"
-    assert session.calls[0][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.15")
+    assert session.calls[0][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.16")
     assert session.calls[1][2]["json"] == {
         "email": "user@example.com",
         "password": "secret",
         "rememberMe": False,
         "language": "English_Gb",
     }
-    assert session.calls[1][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.15")
+    assert session.calls[1][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.16")
     assert session.calls[0][2]["timeout"].total == 30
 
 
@@ -193,7 +193,7 @@ async def test_read_only_endpoint_families_accept_their_payload_shapes() -> None
     session = FakeSession(
         [
             *login_responses(),
-            FakeResponse(json_data={"plans": []}),
+            FakeResponse(json_data={"ok": True, "data": {"timeProgs": []}}),
             FakeResponse(json_data={"ok": True, "data": {"asKwhRaw": []}}),
             FakeResponse(json_data={"ok": True, "data": {"nextMaintenance": "2027-01-01"}}),
             FakeResponse(json_data=[]),
@@ -210,13 +210,18 @@ async def test_read_only_endpoint_families_accept_their_payload_shapes() -> None
     )
     client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
 
-    assert await client.async_get_schedule("ChZn1") == {"plans": []}
+    assert await client.async_get_schedule("ChZn1") == {"timeProgs": []}
     assert await client.async_get_metering({}, has_cooling=False) == {"asKwhRaw": []}
     assert await client.async_get_maintenance() == {"nextMaintenance": "2027-01-01"}
     assert await client.async_get_bus_errors() == []
     assert (await client.async_get_bsb_points())["700"]["textualValue"] == "Automatic"
 
-    assert "/timeProgs/GATEWAY/ChZn1?umsys=si" in session.calls[2][1]
+    assert session.calls[2][1].endswith("/R2/PlantTimeProgBsb/GetData/GATEWAY")
+    assert session.calls[2][2]["json"] == {
+        "zone": 1,
+        "filter": {"progIds": [1], "plant": False, "zone": True},
+        "useCache": True,
+    }
     assert session.calls[3][2]["json"] == {"features": {}, "hasCooling": False}
     assert "addresses=327836,2950516,2950542,2950544,2950546" in session.calls[-1][1]
     assert "327836" in session.calls[-1][1]
@@ -318,7 +323,52 @@ async def test_optional_forbidden_response_does_not_invalidate_core_session() ->
     data = await client.async_get_data([1])
 
     assert data.plant.outside_temperature == 5.5
-    assert [method for method, _url, _kwargs in session.calls] == ["GET", "POST", "GET", "POST"]
+    assert [method for method, _url, _kwargs in session.calls] == ["GET", "POST", "POST", "POST"]
+
+
+@pytest.mark.asyncio
+async def test_bsb_dhw_schedule_uses_verified_program_filter() -> None:
+    session = FakeSession(
+        [*login_responses(), FakeResponse(json_data={"ok": True, "data": {"timeProgs": []}})]
+    )
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+
+    await client.async_get_schedule("Dhw")
+
+    assert session.calls[-1][2]["json"] == {
+        "zone": 0,
+        "filter": {"progIds": [7], "plant": True, "zone": False},
+        "useCache": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_monitoring_and_bsb_boiler_reads_preserve_structured_payloads() -> None:
+    session = FakeSession(
+        [
+            *login_responses(),
+            FakeResponse(
+                json_data={
+                    "ok": True,
+                    "data": {
+                        "automatedMonitoring": {"hydraulicPressure": 3},
+                        "predictiveMaintenances": [],
+                    },
+                }
+            ),
+            FakeResponse(json_data={"ok": True, "data": {"model": "RVS61"}}),
+        ]
+    )
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+
+    monitoring = await client.async_get_automated_monitoring()
+    boiler = await client.async_get_bsb_boiler_data()
+
+    assert monitoring["automatedMonitoring"]["hydraulicPressure"] == 3
+    assert monitoring["predictiveMaintenances"] == []
+    assert boiler["model"] == "RVS61"
+    assert session.calls[2][1].endswith("/R2/AutomatedMonitoring/GetDrawerData/GATEWAY")
+    assert session.calls[3][1].endswith("/R2/PlantData/GetBsbBoilerData?id=GATEWAY")
 
 
 @pytest.mark.asyncio

@@ -3,22 +3,24 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import date
 from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfPressure, UnitOfTemperature
+from homeassistant.const import UnitOfEnergy, UnitOfPressure, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 
 from .capabilities import supports_cooling, supports_room_sensor
-from .const import BSB_ENTITY_ADDRESSES
+from .const import BSB_ENERGY_HISTORY_ADDRESSES, BSB_ENTITY_ADDRESSES
 from .coordinator import ElcoDataUpdateCoordinator
 from .entity import ElcoAerotopEntity
 from .models import (
     ElcoData,
     NumericVariable,
     bsb_point_available,
+    bsb_point_date,
     bsb_point_field_value,
     bsb_point_value,
 )
@@ -32,12 +34,14 @@ class ElcoSensor(ElcoAerotopEntity, SensorEntity):
         coordinator: ElcoDataUpdateCoordinator,
         key: str,
         name: str,
-        value_fn: Callable[[ElcoData], float | int | str | None],
+        value_fn: Callable[[ElcoData], date | float | int | str | None],
         *,
         temperature: bool = False,
         pressure: bool = False,
         entity_category: EntityCategory | None = None,
         measurement: bool = False,
+        energy: bool = False,
+        date_sensor: bool = False,
         available_fn: Callable[[ElcoData], bool] | None = None,
         enabled_default: bool = True,
     ) -> None:
@@ -58,8 +62,15 @@ class ElcoSensor(ElcoAerotopEntity, SensorEntity):
         elif measurement:
             self._attr_state_class = SensorStateClass.MEASUREMENT
 
+        if energy:
+            self._attr_device_class = SensorDeviceClass.ENERGY
+            self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+            self._attr_state_class = SensorStateClass.TOTAL
+        elif date_sensor:
+            self._attr_device_class = SensorDeviceClass.DATE
+
     @property
-    def native_value(self) -> float | int | str | None:
+    def native_value(self) -> date | float | int | str | None:
         return self._value_fn(self.coordinator.data)
 
     @property
@@ -120,6 +131,22 @@ def _plant_location(data: ElcoData) -> str | None:
     parts = [location.get("addr"), locality or None, location.get("country")]
     rendered = ", ".join(str(part) for part in parts if part)
     return rendered or None
+
+
+def _monitoring_section(data: ElcoData) -> dict[str, Any]:
+    payload = data.discovery.automated_monitoring
+    if not isinstance(payload, dict):
+        return {}
+    section = payload.get("automatedMonitoring")
+    return section if isinstance(section, dict) else {}
+
+
+def _predictive_maintenances(data: ElcoData) -> list[Any] | None:
+    payload = data.discovery.automated_monitoring
+    if not isinstance(payload, dict):
+        return None
+    notices = payload.get("predictiveMaintenances")
+    return notices if isinstance(notices, list) else None
 
 
 async def async_setup_entry(
@@ -472,4 +499,103 @@ async def async_setup_entry(
                 available_fn=lambda state, bsb_address=address: _bsb_available(state, bsb_address),
             )
         )
+
+    energy_fields = (
+        ("heat_delivered_heating", "Heat delivered heating"),
+        ("heat_delivered_dhw", "Heat delivered DHW"),
+        ("refrigeration_delivered", "Refrigeration delivered"),
+        ("energy_input_heating", "Energy input heating"),
+        ("energy_input_dhw", "Energy input DHW"),
+        ("energy_input_cooling", "Energy input cooling"),
+    )
+    for slot, addresses in BSB_ENERGY_HISTORY_ADDRESSES.items():
+        enabled = slot == 1
+        date_address = addresses["record_date"]
+        entities.append(
+            ElcoSensor(
+                coordinator,
+                f"annual_energy_record_{slot}_date",
+                f"Annual energy record {slot} date",
+                lambda state, bsb_address=date_address: bsb_point_date(
+                    state.discovery.bsb_points.get(bsb_address)
+                ),
+                date_sensor=True,
+                entity_category=EntityCategory.DIAGNOSTIC,
+                available_fn=lambda state, bsb_address=date_address: _bsb_available(
+                    state, bsb_address
+                ),
+                enabled_default=enabled,
+            )
+        )
+        factor_address = addresses["performance_factor"]
+        entities.append(
+            ElcoSensor(
+                coordinator,
+                f"annual_performance_factor_{slot}",
+                f"Annual performance factor {slot}",
+                lambda state, bsb_address=factor_address: _as_number(
+                    _bsb_value(state, bsb_address)
+                ),
+                measurement=True,
+                entity_category=EntityCategory.DIAGNOSTIC,
+                available_fn=lambda state, bsb_address=factor_address: _bsb_available(
+                    state, bsb_address
+                ),
+                enabled_default=enabled,
+            )
+        )
+        for field, label in energy_fields:
+            address = addresses[field]
+            entities.append(
+                ElcoSensor(
+                    coordinator,
+                    f"annual_{field}_{slot}",
+                    f"Annual {label.lower()} {slot}",
+                    lambda state, bsb_address=address: _as_number(_bsb_value(state, bsb_address)),
+                    energy=True,
+                    entity_category=EntityCategory.DIAGNOSTIC,
+                    available_fn=lambda state, bsb_address=address: _bsb_available(
+                        state, bsb_address
+                    ),
+                    enabled_default=enabled,
+                )
+            )
+
+    monitoring_specs = (
+        ("hydraulicPressure", "hydraulic_pressure", "Hydraulic pressure health"),
+        ("refrigerantCircuit", "refrigerant_circuit", "Refrigerant circuit health"),
+        ("circulation", "circulation", "Circulation health"),
+        ("combustion", "combustion", "Combustion health"),
+        ("other", "other", "Other appliance health"),
+    )
+    for field, key_suffix, name in monitoring_specs:
+        entities.append(
+            ElcoSensor(
+                coordinator,
+                f"automated_monitoring_{key_suffix}",
+                name,
+                lambda state, attribute=field: _as_number(
+                    _monitoring_section(state).get(attribute)
+                ),
+                entity_category=EntityCategory.DIAGNOSTIC,
+                measurement=True,
+                available_fn=lambda state, attribute=field: (
+                    _as_number(_monitoring_section(state).get(attribute)) is not None
+                ),
+            )
+        )
+
+    entities.append(
+        ElcoSensor(
+            coordinator,
+            "predictive_maintenance_count",
+            "Predictive maintenance notice count",
+            lambda state: (
+                len(notices) if (notices := _predictive_maintenances(state)) is not None else None
+            ),
+            entity_category=EntityCategory.DIAGNOSTIC,
+            measurement=True,
+            available_fn=lambda state: _predictive_maintenances(state) is not None,
+        )
+    )
     async_add_entities(entities)

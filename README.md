@@ -73,8 +73,8 @@ account; it does not communicate with the heat pump over the local network.
 - Automatic heating-zone discovery
 - Full key capture for the gateway's Features and plant/zone `GetData` responses
 - Isolated read-only discovery of the complete known system-property set, native BSB plant data,
-  supported mobile menu items, schedules, metering, maintenance, errors, and allowlisted BSB
-  parameters
+  supported mobile menu items, BSB-native schedules, metering, automated monitoring, predictive
+  maintenance, errors, annual energy history, and allowlisted BSB parameters
 - Conservative five-minute polling interval by default
 - Configurable polling interval from 60 to 3,600 seconds
 - Read-only temperatures and operating-state entities
@@ -144,12 +144,30 @@ require the current value, limits, or allowed options needed to send a validated
 | Heat pump gas temperature | `sensor.<device>_heat_pump_gas_temperature` | BSB | °C | Heat-pump gas temperature datapoint. |
 | Source outlet temperature | `sensor.<device>_source_outlet_temperature` | BSB | °C | Heat-source outlet temperature. |
 | Hot gas temperature | `sensor.<device>_hot_gas_temperature` | BSB | °C | Heat-pump hot-gas temperature. |
+| Hydraulic pressure health | `sensor.<device>_hydraulic_pressure_health` | Diagnostic | level | Automated-monitoring health level returned by Remocon. |
+| Refrigerant circuit health | `sensor.<device>_refrigerant_circuit_health` | Diagnostic | level | Refrigerant-circuit health level returned by Remocon. |
+| Circulation health | `sensor.<device>_circulation_health` | Diagnostic | level | Circulation health level returned by Remocon. |
+| Combustion health | `sensor.<device>_combustion_health` | Diagnostic | level | Combustion health level returned by Remocon. |
+| Other appliance health | `sensor.<device>_other_appliance_health` | Diagnostic | level | Catch-all appliance health level returned by Remocon. |
+| Predictive maintenance notice count | `sensor.<device>_predictive_maintenance_notice_count` | Diagnostic | — | Number of active structured predictive-maintenance notices. Notice payloads remain in redacted diagnostics. |
+| Annual energy record `<slot>` date | `sensor.<device>_annual_energy_record_<slot>_date` | Diagnostic | date | Controller fixed date for annual history slot 1–10. |
+| Annual performance factor `<slot>` | `sensor.<device>_annual_performance_factor_<slot>` | Diagnostic | — | Yearly performance factor for history slot 1–10. |
+| Annual heat delivered heating/DHW `<slot>` | `sensor.<device>_annual_heat_delivered_<type>_<slot>` | Diagnostic | kWh | Delivered heating or DHW energy for history slot 1–10. |
+| Annual refrigeration delivered `<slot>` | `sensor.<device>_annual_refrigeration_delivered_<slot>` | Diagnostic | kWh | Delivered cooling energy for history slot 1–10. |
+| Annual energy input heating/DHW/cooling `<slot>` | `sensor.<device>_annual_energy_input_<type>_<slot>` | Diagnostic | kWh | Electrical input energy for history slot 1–10. |
 
 Temperature sensors use Home Assistant's `temperature` device class and `measurement` state class.
 The read-only zone-mode sensor and low-level BSB 700/710/712/714/720/730 sensors are diagnostic
 entities and are disabled by default for new installations because their values overlap the normal
 select and number controls. They remain available for backward compatibility, controller
 troubleshooting, and cross-checking.
+
+The ten annual history slots are stable controller records rather than continuously increasing
+lifetime counters, so their kWh entities use Home Assistant's `energy` device class and `total`
+state class—not `total_increasing`. Slot 1 is enabled by default. Slots 2–10 are registered but
+disabled by default to avoid adding 72 historical entities to every dashboard; users can enable
+any older record in the entity registry. A controller `osv` or communication-error flag makes only
+the affected record unavailable.
 
 ### Holiday calendars
 
@@ -216,11 +234,13 @@ probes these non-mutating endpoint families:
 |---|---|---:|
 | Plant metadata | Serial, plant name, structured location, gateway firmware, link/system type, and API version | Approximately hourly |
 | System data | Pressure, flow values, plant/DHW state, and zone values requested by stable item IDs | Every normal poll |
-| Time programs | Heating, supported cooling, and DHW weekly programs | Approximately hourly |
+| Time programs | Complete BSB-native heating, supported cooling, and DHW weekly programs from `PlantTimeProgBsb/GetData` | Approximately hourly |
 | Metering | The complete metering response, without assuming one firmware-specific schema | Approximately hourly |
 | Maintenance | Cloud maintenance response when the account is authorized for it | Approximately hourly |
+| Automated monitoring | Five appliance-health levels, urgency/connection details, and structured predictive-maintenance notices | Approximately hourly |
+| BSB appliance data | Structured controller/boiler identification returned by Remocon | Approximately hourly |
 | Controller errors | Read-only bus-error response | Approximately hourly |
-| BSB | Allowlisted heating-circuit and Aerotop temperature/pressure datapoints, read in independent JSON API groups | Approximately hourly |
+| BSB | Allowlisted heating-circuit, Aerotop temperature/pressure, time/default, maintenance, and annual-energy datapoints, read in independent JSON API groups | Approximately hourly |
 | Native BSB plant snapshot | Complete plant, zone, capability, holiday, and setpoint response used by Remocon mobile clients | Approximately hourly |
 | Mobile menu items | Supported service values from IDs 119–130 plus feature-selected VMC, SLP, hybrid, heat-pump, and cascade/BMS catalog families on non-BSB controller families | Approximately hourly |
 
@@ -263,6 +283,12 @@ Remocon's mobile `menuItems` endpoint is not a substitute on Aerotop/BSB plants.
 Galevo controller family and returns HTTP 500 for valid, individually token-authenticated IDs when
 `Features` reports BSB system type 5. The integration records that family as unsupported instead of
 repeatedly sending requests that cannot succeed.
+
+Remocon advertises a separate metering capability, but some BSB Aerotop controllers expose annual
+energy history even when `Features.hasMetering` is false. The integration therefore reads the ten
+verified BSB annual records independently of the cloud metering feature flag. The 80 internal
+addresses were captured from structured BSB menu metadata and are queried in one isolated,
+read-only JSON group.
 
 ## Installation
 
@@ -438,10 +464,8 @@ credentials, gateway IDs, serial numbers, or unredacted payloads.
 ## Roadmap
 
 - Real-gateway validation across additional Aerotop models and zone configurations
-- Read-only schedule entities after real response shapes are validated
-- Energy and long-term-statistics entities after real metering units and counter semantics are
-  validated
-- Maintenance and controller-error entities after real response shapes are validated
+- Read-only schedule entities after weekly-plan presentation semantics are finalized
+- Additional predictive-maintenance entities after more non-empty real responses are contributed
 - Expanded anonymized real-gateway fixtures across models and firmware versions
 - Additional translations
 

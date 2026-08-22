@@ -10,7 +10,7 @@ DEFAULT_BASE_URL: Final = "https://www.remocon-net.remotethermo.com"
 DEFAULT_SCAN_INTERVAL: Final = 300
 MIN_SCAN_INTERVAL: Final = 60
 REQUEST_TIMEOUT: Final = 30
-USER_AGENT: Final = "ELCO-Aerotop-Home-Assistant/0.2.15"
+USER_AGENT: Final = "ELCO-Aerotop-Home-Assistant/0.2.16"
 
 CONF_BASE_URL: Final = "base_url"
 CONF_GATEWAY_ID: Final = "gateway_id"
@@ -30,11 +30,43 @@ DATA_ITEMS_PATH: Final = "/api/v2/remote/dataItems/{gateway_id}/get?umsys=si"
 BSB_PLANT_DATA_PATH: Final = "/api/v2/remote/bsbPlantData/{gateway_id}"
 MENU_ITEMS_PATH: Final = "/api/v2/menuItems/{gateway_id}?menuItems={item_ids}"
 PLANTS_LITE_PATH: Final = "/api/v2/remote/plants/lite"
-TIME_PROGRAM_PATH: Final = "/api/v2/remote/timeProgs/{gateway_id}/{program}?umsys=si"
+BSB_TIME_PROGRAM_PATH: Final = "/R2/PlantTimeProgBsb/GetData/{gateway_id}"
 METERING_PATH: Final = "/R2/PlantMetering/GetData/{gateway_id}"
 MAINTENANCE_PATH: Final = "/R2/PlantData/GetMaintenanceData?id={gateway_id}"
+AUTOMATED_MONITORING_PATH: Final = "/R2/AutomatedMonitoring/GetDrawerData/{gateway_id}"
+BSB_BOILER_DATA_PATH: Final = "/R2/PlantData/GetBsbBoilerData?id={gateway_id}"
 BUS_ERRORS_PATH: Final = "/api/v2/busErrors?gatewayId={gateway_id}&blockingOnly=False&culture=en-US"
 BSB_READ_PATH: Final = "/R2/PlantMenuBsb/ReadDataPoints/{gateway_id}?addresses={addresses}"
+
+BSB_TIME_PROGRAM_IDS: Final = {
+    **{f"ChZn{zone}": zone for zone in range(1, 7)},
+    "Dhw": 7,
+    "Extra": 8,
+    **{f"CoolZn{zone}": zone + 8 for zone in range(1, 7)},
+}
+
+# Annual energy records are controller-backed BSB values. Remocon exposes ten
+# fixed-date slots, each with a performance factor and six energy totals. The
+# address families and their slot offsets were verified from the authenticated
+# structured BSB menu metadata; no displayed-line-number arithmetic is used.
+BSB_ENERGY_HISTORY_ADDRESSES: Final = {
+    slot: {
+        "record_date": str(333480 + slot),
+        "performance_factor": str(333490 + slot),
+        "heat_delivered_heating": str(333500 + slot),
+        "heat_delivered_dhw": str(333510 + slot),
+        "refrigeration_delivered": str(334190 + slot),
+        "energy_input_heating": str(333520 + slot),
+        "energy_input_dhw": str(333530 + slot),
+        "energy_input_cooling": str(334200 + slot),
+    }
+    for slot in range(1, 11)
+}
+BSB_ENERGY_HISTORY_ADDRESS_LIST: Final = tuple(
+    address
+    for slot_addresses in BSB_ENERGY_HISTORY_ADDRESSES.values()
+    for address in slot_addresses.values()
+)
 
 BSB_ENTITY_ADDRESSES: Final = {
     # Verified from the authenticated Remocon BSB menu's structured accordion
@@ -56,10 +88,16 @@ BSB_ENTITY_ADDRESSES: Final = {
 }
 BSB_DISCOVERY_ADDRESSES: Final = (
     *BSB_ENTITY_ADDRESSES.values(),
+    *BSB_ENERGY_HISTORY_ADDRESS_LIST,
     "2950565",
     "328993",
     "5838456",
     "5838457",
+    "327691",
+    "329138",
+    "460210",
+    "329139",
+    "2950338",
 )
 BSB_DISCOVERY_GROUPS: Final = {
     # Preserve the address grouping verified by v0.2.6 diagnostics. Address
@@ -87,6 +125,17 @@ BSB_DISCOVERY_GROUPS: Final = {
         BSB_ENTITY_ADDRESSES["hot_gas_temperature"],
         "5838456",
         "5838457",
+    ),
+    "energy_history": BSB_ENERGY_HISTORY_ADDRESS_LIST,
+    # Verified safe reads retained in diagnostics. Values already represented
+    # by a primary control (holiday level) or one-shot reset actions (schedule
+    # defaults) intentionally do not create duplicate entities.
+    "other_settings": (
+        "327691",  # Time of day and date > Clock time
+        "329138",  # Heating/cooling program 1 > 516 Default values
+        "460210",  # Program 3/HC3 > 556 Default values
+        "329139",  # Program 4/DHW > 576 Default values
+        "2950338",  # Holidays heating/cooling 1 > 648 Operating level
     ),
 }
 GLOBAL_DATA_ITEM_IDS: Final = (

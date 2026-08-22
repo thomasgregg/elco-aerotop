@@ -165,6 +165,8 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
             else "unsupported:feature"
         )
         status["maintenance"] = "deferred:background"
+        status["automated_monitoring"] = "deferred:background"
+        status["bsb_boiler_data"] = "deferred:background"
         status["bsb_plant_data"] = "deferred:background"
         status["menu_items"] = "deferred:background"
 
@@ -234,6 +236,16 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
                 self.api.async_get_maintenance(),
                 status,
             )
+            automated_monitoring = await self._async_optional_probe(
+                "automated_monitoring",
+                self.api.async_get_automated_monitoring(),
+                status,
+            )
+            bsb_boiler_data = await self._async_optional_probe(
+                "bsb_boiler_data",
+                self.api.async_get_bsb_boiler_data(),
+                status,
+            )
             bsb_plant_data = await self._async_optional_probe(
                 "bsb_plant_data",
                 self.api.async_get_bsb_plant_data(),
@@ -266,6 +278,8 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
                 schedules=schedules,
                 metering=metering,
                 maintenance=maintenance,
+                automated_monitoring=automated_monitoring,
+                bsb_boiler_data=bsb_boiler_data,
                 bsb_points=bsb_points,
                 bsb_plant_data=(bsb_plant_data if isinstance(bsb_plant_data, dict) else {}),
                 menu_items=menu_items,

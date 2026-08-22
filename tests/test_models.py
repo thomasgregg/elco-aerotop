@@ -5,7 +5,11 @@ from datetime import date
 from pathlib import Path
 
 from custom_components.elco_aerotop.capabilities import supports_cooling, supports_room_sensor
-from custom_components.elco_aerotop.const import BSB_DISCOVERY_GROUPS, BSB_ENTITY_ADDRESSES
+from custom_components.elco_aerotop.const import (
+    BSB_DISCOVERY_GROUPS,
+    BSB_ENERGY_HISTORY_ADDRESSES,
+    BSB_ENTITY_ADDRESSES,
+)
 from custom_components.elco_aerotop.models import (
     BsbHoliday,
     NumericVariable,
@@ -13,6 +17,7 @@ from custom_components.elco_aerotop.models import (
     ReadOnlyDiscovery,
     ZoneState,
     bsb_point_available,
+    bsb_point_date,
     bsb_point_field_value,
     bsb_point_value,
 )
@@ -214,6 +219,20 @@ def test_bsb_maintenance_message_fields_are_read_by_name_with_index_fallback() -
     assert bsb_point_field_value(point, "Maintenance priority 2", 3) == 0
 
 
+def test_bsb_compound_date_uses_named_fields_and_rejects_placeholders() -> None:
+    point = {
+        "fields": [
+            {"name": "yyyy", "valueAsNumber": 2026},
+            {"name": "MM", "valueAsString": "06"},
+            {"name": "dd", "value": 30},
+        ]
+    }
+
+    assert bsb_point_date(point) == date(2026, 6, 30)
+    point["fields"][2]["value"] = "--"
+    assert bsb_point_date(point) is None
+
+
 def test_parse_current_bsb_holiday_fields_and_flags() -> None:
     fixture = json.loads((Path(__file__).parent / "fixtures" / "bsb_holidays.json").read_text())
     raw = fixture["holidays"][0]
@@ -254,3 +273,19 @@ def test_heating_setpoint_addresses_match_live_controller_values() -> None:
     assert BSB_ENTITY_ADDRESSES["712"] == "2950544"
     assert BSB_DISCOVERY_GROUPS["plant_auxiliary_2950542"] == ("2950542",)
     assert BSB_DISCOVERY_GROUPS["maintenance_message"] == ("327836",)
+
+
+def test_energy_history_addresses_match_verified_controller_families() -> None:
+    assert BSB_ENERGY_HISTORY_ADDRESSES[1] == {
+        "record_date": "333481",
+        "performance_factor": "333491",
+        "heat_delivered_heating": "333501",
+        "heat_delivered_dhw": "333511",
+        "refrigeration_delivered": "334191",
+        "energy_input_heating": "333521",
+        "energy_input_dhw": "333531",
+        "energy_input_cooling": "334201",
+    }
+    assert BSB_ENERGY_HISTORY_ADDRESSES[10]["record_date"] == "333490"
+    assert BSB_ENERGY_HISTORY_ADDRESSES[10]["energy_input_cooling"] == "334210"
+    assert len(BSB_DISCOVERY_GROUPS["energy_history"]) == 80
