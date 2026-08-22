@@ -11,6 +11,8 @@ Home Assistant diagnostics contain:
 
 - the full `Features` response and parsed feature map;
 - plant-list metadata including serial, name, location, firmware, and system/link types;
+- live plant-header status including connectivity, controller model, and fault summary;
+- plant-owner name, language, and optional contact metadata;
 - every full `PlantHomeBsb/GetData` response used for the current plant and zones;
 - requested read-only system-data items;
 - the complete native mobile `bsbPlantData` snapshot;

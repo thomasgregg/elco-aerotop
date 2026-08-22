@@ -413,6 +413,8 @@ class ReadOnlyDiscovery:
     features: dict[str, Any] = field(default_factory=dict)
     features_response: Any = None
     plant_metadata: dict[str, Any] = field(default_factory=dict)
+    plant_header: dict[str, Any] = field(default_factory=dict)
+    plant_user_data: dict[str, Any] = field(default_factory=dict)
     system_items: dict[str, dict[str, Any]] = field(default_factory=dict)
     schedules: dict[str, Any] = field(default_factory=dict)
     metering: Any = None

@@ -207,7 +207,13 @@ see [Testing status and how to help](#testing-status-and-how-to-help).
 | Gateway serial | `sensor.<device>_gateway_serial` | Metadata | Plant metadata returns it |
 | Plant name | `sensor.<device>_plant_name` | Metadata | Plant metadata returns it |
 | Plant location | `sensor.<device>_plant_location` | Metadata | Structured location can be rendered |
-| Gateway firmware | `sensor.<device>_gateway_firmware` | Metadata | Plant metadata returns it |
+| Gateway firmware | `sensor.<device>_gateway_firmware` | Metadata | Plant metadata returns `gwFwVer`; Remocon labels the same value Connectivity Gateway software |
+| Gateway online | `binary_sensor.<device>_gateway_online` | Connectivity | Plant-header API returns a connectivity flag |
+| Plant status | `sensor.<device>_plant_status` | Status | Plant-header API returns a status label or code |
+| Appliance model | `sensor.<device>_appliance_model` | Metadata | Plant-header API returns it |
+| Appliance serial | `sensor.<device>_appliance_serial` | Metadata | Plant-header or BSB appliance API returns it |
+| Plant owner | `sensor.<device>_plant_owner` | Metadata | Plant-user API returns a first or last name |
+| Account language | `sensor.<device>_account_language` | Metadata | Plant-user API returns it |
 | Controller error count | `sensor.<device>_controller_error_count` | Fault | Error API returns a list |
 | Controller error | `binary_sensor.<device>_controller_error` | Problem | Error API returns a list; up to ten records are attributes |
 | Maintenance code 1/2 | `sensor.<device>_maintenance_code_<1-2>` | Maintenance | BSB 7000 response is usable |
@@ -226,10 +232,17 @@ BSB line 7000 can return two simultaneous maintenance messages, so code and prio
 entities each. Raw structured maintenance, monitoring, and notice payloads remain in redacted Home
 Assistant diagnostics for fields that do not yet justify dedicated entities.
 
+`sensor.<device>_gateway_firmware` is the only entity created for `gwFwVer`. Home Assistant also
+shows that same value in the device's built-in software-version field; this is device metadata,
+not a second entity. Owner names, phone numbers, and plant addresses are redacted from downloadable
+diagnostics even when their dedicated entities are present locally.
+
 ## Diagnostics disabled by default
 
 | Entity | Typical entity ID | Created when |
 |---|---|---|
+| Owner phone | `sensor.<device>_owner_phone` | Plant-user API returns it |
+| Owner mobile phone | `sensor.<device>_owner_mobile_phone` | Plant-user API returns it |
 | Zone `<zone>` mode | `sensor.<device>_zone_<zone>_mode` | Current mode exists; duplicates native/select state |
 | Domestic hot water enabled | `binary_sensor.<device>_domestic_hot_water_enabled` | DHW is not hidden |
 | Zone `<zone>` heating active | `binary_sensor.<device>_zone_<zone>_heating_active` | Flag is returned; duplicates thermostat activity |

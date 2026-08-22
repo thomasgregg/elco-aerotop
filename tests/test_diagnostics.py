@@ -15,6 +15,13 @@ def test_diagnostics_redact_identifiers_and_known_secrets() -> None:
         "gateway-ABC123": {"value": "safe"},
         "zones": [{"name": "Living room", "value": "ABC123 at home@example.test"}],
         "maintenance": {"technician": "Named person"},
+        "plant_user_data": {
+            "firstName": "Thomas",
+            "lastName": "Gregg",
+            "phone": "+49 123",
+            "mobilePhone": "+49 456",
+        },
+        "plant_header": {"plantAddress": "Private street", "gwOnline": True},
         "plant": {
             "gwSerial": "SERIAL-987",
             "plantName": "Private home",
@@ -30,6 +37,12 @@ def test_diagnostics_redact_identifiers_and_known_secrets() -> None:
     assert sanitized["zones"][0]["name"] == "<redacted>"
     assert sanitized["zones"][0]["value"] == "<redacted> at <redacted>"
     assert sanitized["maintenance"]["technician"] == "<redacted>"
+    assert sanitized["plant_user_data"]["firstName"] == "<redacted>"
+    assert sanitized["plant_user_data"]["lastName"] == "<redacted>"
+    assert sanitized["plant_user_data"]["phone"] == "<redacted>"
+    assert sanitized["plant_user_data"]["mobilePhone"] == "<redacted>"
+    assert sanitized["plant_header"]["plantAddress"] == "<redacted>"
+    assert sanitized["plant_header"]["gwOnline"] is True
     assert sanitized["plant"]["gwSerial"] == "<redacted>"
     assert sanitized["plant"]["plantName"] == "<redacted>"
     assert sanitized["plant"]["location"] == "<redacted>"
@@ -64,6 +77,8 @@ def test_anonymized_discovery_fixture_covers_every_endpoint_family() -> None:
     assert fixture["get_data_responses"][0]["data"]["plantData"]
     for family in (
         "system_items",
+        "plant_header",
+        "plant_user_data",
         "schedules",
         "metering",
         "maintenance",
@@ -86,6 +101,8 @@ def test_real_gateway_fixture_is_anonymized_and_preserves_sentinel_fields() -> N
     assert fixture["features"]["hpSys"] is True
     assert fixture["features"]["hasMetering"] is False
     assert fixture["plant_metadata"]["gwSerial"] == "<redacted>"
+    assert fixture["plant_header"]["gwOnline"] is True
+    assert fixture["plant_user_data"]["firstName"] == "<redacted>"
     assert fixture["get_data"]["zoneData"]["hasRoomSensor"] is False
     assert fixture["get_data"]["zoneData"]["roomTemp"] == 0
     assert fixture["get_data"]["zoneData"]["coolComfortTemp"]["value"] == 0

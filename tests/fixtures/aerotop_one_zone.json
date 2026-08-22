@@ -14,6 +14,20 @@
     "controlledByGuest": false,
     "mqttApiVersion": 3
   },
+  "plant_header": {
+    "plantAddress": "<redacted>",
+    "applianceModel": "RVS 61",
+    "gwOnline": true,
+    "errorType": 0,
+    "errorText": "Status: OK"
+  },
+  "plant_user_data": {
+    "firstName": "<redacted>",
+    "lastName": "<redacted>",
+    "emailLanguage": "English",
+    "phone": "",
+    "mobilePhone": ""
+  },
   "features": {
     "zones": [
       {

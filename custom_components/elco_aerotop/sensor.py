@@ -133,6 +133,64 @@ def _plant_location(data: ElcoData) -> str | None:
     return rendered or None
 
 
+def _mapping_value(mapping: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if mapping.get(key) not in (None, ""):
+            return mapping[key]
+    return None
+
+
+def _plant_header_value(data: ElcoData, *keys: str) -> Any:
+    return _mapping_value(data.discovery.plant_header, *keys)
+
+
+def _plant_user_value(data: ElcoData, *keys: str) -> Any:
+    return _mapping_value(data.discovery.plant_user_data, *keys)
+
+
+def _plant_owner(data: ElcoData) -> str | None:
+    first_name = _plant_user_value(data, "firstName", "FirstName")
+    last_name = _plant_user_value(data, "lastName", "LastName")
+    rendered = " ".join(str(value).strip() for value in (first_name, last_name) if value)
+    return rendered or None
+
+
+def _plant_status(data: ElcoData) -> str | None:
+    status = _plant_header_value(data, "errorText", "ErrorText", "status", "Status")
+    if isinstance(status, str):
+        label, separator, value = status.partition(":")
+        if separator and label.strip().casefold() == "status":
+            return value.strip() or None
+        return status.strip() or None
+    error_type = _plant_header_value(data, "errorType", "ErrorType")
+    if error_type == 0:
+        return "OK"
+    return str(error_type) if error_type is not None else None
+
+
+def _appliance_serial(data: ElcoData) -> str | None:
+    header_value = _plant_header_value(
+        data,
+        "applianceSerial",
+        "ApplianceSerial",
+        "productSerialNumber",
+        "ProductSerialNumber",
+    )
+    if header_value is not None:
+        return str(header_value)
+    boiler_data = data.discovery.bsb_boiler_data
+    if not isinstance(boiler_data, dict):
+        return None
+    value = _mapping_value(
+        boiler_data,
+        "applianceSerial",
+        "serialNumber",
+        "productSerialNumber",
+        "serial",
+    )
+    return str(value) if value is not None else None
+
+
 def _monitoring_section(data: ElcoData) -> dict[str, Any]:
     payload = data.discovery.automated_monitoring
     if not isinstance(payload, dict):
@@ -174,6 +232,53 @@ async def async_setup_entry(
                 name,
                 lambda state, attribute=field: state.discovery.plant_metadata.get(attribute),
                 entity_category=EntityCategory.DIAGNOSTIC,
+            )
+        )
+
+    header_sensor_specs = (
+        (
+            "appliance_model",
+            "Appliance model",
+            lambda state: _plant_header_value(
+                state, "applianceModel", "ApplianceModel", "model", "Model"
+            ),
+            True,
+        ),
+        ("plant_status", "Plant status", _plant_status, True),
+        ("plant_owner", "Plant owner", _plant_owner, True),
+        (
+            "account_language",
+            "Account language",
+            lambda state: _plant_user_value(
+                state, "emailLanguage", "EmailLanguage", "language", "Language"
+            ),
+            True,
+        ),
+        (
+            "owner_phone",
+            "Owner phone",
+            lambda state: _plant_user_value(state, "phone", "Phone"),
+            False,
+        ),
+        (
+            "owner_mobile_phone",
+            "Owner mobile phone",
+            lambda state: _plant_user_value(state, "mobilePhone", "MobilePhone"),
+            False,
+        ),
+        ("appliance_serial", "Appliance serial", _appliance_serial, True),
+    )
+    for key, name, value_fn, enabled_default in header_sensor_specs:
+        if value_fn(data) is None:
+            continue
+        entities.append(
+            ElcoSensor(
+                coordinator,
+                key,
+                name,
+                value_fn,
+                entity_category=EntityCategory.DIAGNOSTIC,
+                enabled_default=enabled_default,
             )
         )
     if _plant_location(data) is not None:

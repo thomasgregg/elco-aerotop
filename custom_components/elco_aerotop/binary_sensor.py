@@ -35,6 +35,22 @@ def _heat_pump_running(data: ElcoData) -> bool | None:
     )
 
 
+def _gateway_online(data: ElcoData) -> bool | None:
+    header = data.discovery.plant_header
+    value = header.get("gwOnline", header.get("GwOnline", header.get("online")))
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int | float):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().casefold()
+        if normalized in {"true", "online", "1"}:
+            return True
+        if normalized in {"false", "offline", "0"}:
+            return False
+    return None
+
+
 class ElcoBinarySensor(ElcoAerotopEntity, BinarySensorEntity):
     def __init__(
         self,
@@ -76,6 +92,18 @@ async def async_setup_entry(
     data = coordinator.data
     features = data.discovery.features
     entities: list[BinarySensorEntity] = []
+
+    if _gateway_online(data) is not None:
+        entities.append(
+            ElcoBinarySensor(
+                coordinator,
+                "gateway_online",
+                "Gateway online",
+                _gateway_online,
+                device_class=BinarySensorDeviceClass.CONNECTIVITY,
+                entity_category=EntityCategory.DIAGNOSTIC,
+            )
+        )
 
     if isinstance(data.discovery.bus_errors, list):
         entities.append(

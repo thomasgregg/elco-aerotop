@@ -9,8 +9,8 @@ DOMAIN: Final = "elco_aerotop"
 DEFAULT_BASE_URL: Final = "https://www.remocon-net.remotethermo.com"
 DEFAULT_SCAN_INTERVAL: Final = 3600
 MIN_SCAN_INTERVAL: Final = 60
-REQUEST_TIMEOUT: Final = 30
-USER_AGENT: Final = "ELCO-Aerotop-Home-Assistant/0.3.0"
+REQUEST_TIMEOUT: Final = 70
+USER_AGENT: Final = "ELCO-Aerotop-Home-Assistant/0.3.3"
 
 CONF_BASE_URL: Final = "base_url"
 CONF_GATEWAY_ID: Final = "gateway_id"
@@ -38,6 +38,8 @@ DATA_ITEMS_PATH: Final = "/api/v2/remote/dataItems/{gateway_id}/get?umsys=si"
 BSB_PLANT_DATA_PATH: Final = "/api/v2/remote/bsbPlantData/{gateway_id}"
 MENU_ITEMS_PATH: Final = "/api/v2/menuItems/{gateway_id}?menuItems={item_ids}"
 PLANTS_LITE_PATH: Final = "/api/v2/remote/plants/lite"
+PLANT_HEADER_PATH: Final = "/R2/Plant/PlantHeader/{gateway_id}"
+PLANT_USER_DATA_PATH: Final = "/R2/PlantData/GetUserData?id={gateway_id}"
 BSB_TIME_PROGRAM_PATH: Final = "/R2/PlantTimeProgBsb/GetData/{gateway_id}"
 METERING_PATH: Final = "/R2/PlantMetering/GetData/{gateway_id}"
 MAINTENANCE_PATH: Final = "/R2/PlantData/GetMaintenanceData?id={gateway_id}"

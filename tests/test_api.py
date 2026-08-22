@@ -9,6 +9,7 @@ import pytest
 from yarl import URL
 
 from custom_components.elco_aerotop.api import ElcoApiClient, ElcoAuthenticationError
+from custom_components.elco_aerotop.const import REQUEST_TIMEOUT
 
 
 class FakeCookieJar:
@@ -122,15 +123,15 @@ async def test_login_uses_antiforgery_cookie_and_json_credentials() -> None:
     await client.async_login()
 
     assert session.cookie_jar.cookies["__formRequestVerificationToken"] == "token-123"
-    assert session.calls[0][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.3.0")
+    assert session.calls[0][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.3.3")
     assert session.calls[1][2]["json"] == {
         "email": "user@example.com",
         "password": "secret",
         "rememberMe": False,
         "language": "English_Gb",
     }
-    assert session.calls[1][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.3.0")
-    assert session.calls[0][2]["timeout"].total == 30
+    assert session.calls[1][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.3.3")
+    assert session.calls[0][2]["timeout"].total == REQUEST_TIMEOUT
 
 
 @pytest.mark.asyncio
@@ -305,6 +306,42 @@ async def test_plant_metadata_matches_gateway_id_or_serial() -> None:
     assert metadata["plantName"] == "Home"
     assert metadata["location"]["cityName"] == "Example City"
     assert session.calls[-1][1].endswith("/api/v2/remote/plants/lite")
+
+
+@pytest.mark.asyncio
+async def test_plant_header_returns_live_status_metadata() -> None:
+    header = {
+        "plantAddress": "Example address",
+        "applianceModel": "RVS 61",
+        "gwOnline": True,
+        "errorType": 0,
+        "errorText": "Status: OK",
+    }
+    session = FakeSession([*login_responses(), FakeResponse(json_data=header)])
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+
+    result = await client.async_get_plant_header()
+
+    assert result == header
+    assert session.calls[-1][1].endswith("/R2/Plant/PlantHeader/GATEWAY")
+
+
+@pytest.mark.asyncio
+async def test_plant_user_data_returns_owner_metadata() -> None:
+    user_data = {
+        "firstName": "Thomas",
+        "lastName": "Gregg",
+        "emailLanguage": "English",
+        "phone": "",
+        "mobilePhone": "",
+    }
+    session = FakeSession([*login_responses(), FakeResponse(json_data={"data": user_data})])
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+
+    result = await client.async_get_plant_user_data()
+
+    assert result == user_data
+    assert session.calls[-1][1].endswith("/R2/PlantData/GetUserData?id=GATEWAY")
 
 
 @pytest.mark.asyncio

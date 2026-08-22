@@ -31,6 +31,8 @@ from .const import (
     MENU_ITEMS_PATH,
     METERING_PATH,
     MOBILE_LOGIN_PATH,
+    PLANT_HEADER_PATH,
+    PLANT_USER_DATA_PATH,
     PLANTS_LITE_PATH,
     REQUEST_TIMEOUT,
     SAVE_DHW_PATH,
@@ -409,6 +411,32 @@ class ElcoApiClient:
             if self.gateway_id in identifiers:
                 return plant
         raise ElcoResponseError("Configured gateway was not present in the plant list")
+
+    async def async_get_plant_header(self) -> dict[str, Any]:
+        """Fetch live connectivity, model, and fault summary metadata."""
+        payload = await self._request_payload(
+            "GET",
+            PLANT_HEADER_PATH.format(gateway_id=self.gateway_id),
+            retry_auth=False,
+            invalidate_auth=False,
+        )
+        data = payload.get("data", payload) if isinstance(payload, dict) else payload
+        if not isinstance(data, dict):
+            raise ElcoResponseError("Plant header returned an unexpected payload")
+        return data
+
+    async def async_get_plant_user_data(self) -> dict[str, Any]:
+        """Fetch the read-only plant owner and account-language metadata."""
+        payload = await self._request_payload(
+            "GET",
+            PLANT_USER_DATA_PATH.format(gateway_id=self.gateway_id),
+            retry_auth=False,
+            invalidate_auth=False,
+        )
+        data = payload.get("data", payload) if isinstance(payload, dict) else payload
+        if not isinstance(data, dict):
+            raise ElcoResponseError("Plant user data returned an unexpected payload")
+        return data
 
     async def async_get_schedule(self, program: str) -> Any:
         """Fetch one read-only weekly time program."""

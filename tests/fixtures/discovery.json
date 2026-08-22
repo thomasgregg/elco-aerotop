@@ -41,6 +41,20 @@
     "hasTwoCoolingTemp": false,
     "distinctHeatCoolSetpoints": false
   },
+  "plant_header": {
+    "plantAddress": "<redacted>",
+    "applianceModel": "RVS 61",
+    "gwOnline": true,
+    "errorType": 0,
+    "errorText": "Status: OK"
+  },
+  "plant_user_data": {
+    "firstName": "<redacted>",
+    "lastName": "<redacted>",
+    "emailLanguage": "English",
+    "phone": "",
+    "mobilePhone": ""
+  },
   "system_items": {
     "HeatingCircuitPressure:0": {
       "id": "HeatingCircuitPressure",
@@ -181,6 +195,9 @@
   },
   "probe_status": {
     "system_items": "available",
+    "plant_metadata": "available",
+    "plant_header": "available",
+    "plant_user_data": "available",
     "schedule:ChZn1": "available",
     "schedule:Dhw": "available",
     "metering": "available",

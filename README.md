@@ -63,6 +63,7 @@ directly to the heat pump over the local network.
 | Control hot water | A native water-heater entity with target temperature and operating mode |
 | Build automations | Use temperatures, demand, operating state, and holiday periods as inputs |
 | Find problems | Controller errors, probe faults, maintenance codes, and appliance-health data |
+| Check the installation | Gateway connectivity, plant status, controller model, owner, location, and gateway version |
 | Investigate efficiency | Optional historical heat, cooling, input-energy, and performance records |
 
 The exact controls and readings depend on what the gateway reports. Unsupported capabilities are
@@ -96,13 +97,20 @@ states, creation conditions, read/write behavior, and explanations of maintenanc
 energy values. Existing entity IDs and enabled/disabled choices are preserved during upgrades;
 new defaults apply only when an entity is first registered.
 
+Remocon installation metadata is exposed as diagnostic entities when its JSON APIs return a
+value. This includes gateway online state, overall plant status, appliance model and serial,
+plant owner, account language, plant name/location, gateway serial, and gateway version. Owner
+phone fields are optional and disabled by default. Remocon's **Connectivity Gateway** software
+value and the integration's **Gateway firmware** value both come from `gwFwVer`; the integration
+creates one version sensor and also reuses that value in Home Assistant's device information.
+
 ## How data is discovered
 
 Remocon gateways differ by controller, firmware, and installed options. The integration therefore
 starts with the capabilities and values reported by the gateway, then performs additional
 read-only discovery for:
 
-- plant and gateway information;
+- plant and gateway information, live connectivity/status, and owner metadata;
 - heating, hot-water, zone, and controller-bus values;
 - schedules and holiday periods;
 - errors, maintenance messages, and appliance-health information; and
@@ -248,7 +256,8 @@ captured and tested.
 - Authentication expiry triggers one controlled login retry.
 - Rejected credentials start Home Assistant's reauthentication flow.
 - Communication failures mark coordinator-backed entities unavailable until a later poll succeeds.
-- The default request timeout is 30 seconds.
+- Remocon requests allow up to 70 seconds because some valid gateway responses take close to a
+  minute; independent setup metadata calls run concurrently to avoid multiplying that delay.
 
 ## Diagnostics and privacy
 

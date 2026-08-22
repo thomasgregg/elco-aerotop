@@ -52,6 +52,8 @@ The following calls expand model discovery without enabling any corresponding wr
 | Family | Method and path |
 |---|---|
 | Plant metadata | `GET /api/v2/remote/plants/lite` |
+| Live plant header | `GET /R2/Plant/PlantHeader/{gateway}` |
+| Plant owner metadata | `GET /R2/PlantData/GetUserData?id={gateway}` |
 | System data | `POST /api/v2/remote/dataItems/{gateway}/get?umsys=si` |
 | Native BSB plant snapshot | `GET /api/v2/remote/bsbPlantData/{gateway}` |
 | Mobile menu items | `GET /api/v2/menuItems/{gateway}?menuItems={id}` for one feature-selected documented ID |

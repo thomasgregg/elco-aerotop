@@ -4,9 +4,24 @@ All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
 ## Unreleased
 
+## 0.3.3
+
+- Add API-only diagnostic entities for Remocon gateway connectivity, plant status, appliance
+  model/serial, owner name, account language, and optional owner phone numbers.
+- Use the JSON `PlantHeader` and `GetUserData` endpoints already used by Remocon rather than
+  parsing website HTML, and identify the Home Assistant device with the returned controller model.
+- Allow up to 70 seconds for a Remocon request and run setup metadata calls concurrently so slow
+  but valid responses near one minute can complete without multiplying setup delay.
+- Extend diagnostic redaction to owner names, phone numbers, and plant-address fields.
+- Document that Remocon's Connectivity Gateway software value and the existing Gateway firmware
+  entity are one `gwFwVer` value, so no duplicate version entity is created.
+
+## 0.3.2
+
 - Remove historical add-on comparisons from the README and make the separate complete entity
   catalogue prominent through HACS-compatible absolute links at the top, contents, and Entities
   section.
+- Package `elco_aerotop.zip` as a release asset for direct HACS installation and updates.
 
 ## 0.3.1
 

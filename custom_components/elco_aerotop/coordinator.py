@@ -36,7 +36,7 @@ from .models import ElcoData, ReadOnlyDiscovery
 _LOGGER = logging.getLogger(__name__)
 
 _SLOW_DISCOVERY_INTERVAL_SECONDS = 3600
-_OPTIONAL_PROBE_TIMEOUT = 15
+_OPTIONAL_PROBE_TIMEOUT = 65
 _BSB_PROBE_TIMEOUT = 30
 
 
@@ -146,17 +146,41 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         status: dict[str, str] = {}
         programs, _has_cooling = self._schedule_programs(data)
 
-        # Metadata and error history are quick, entity-bearing JSON reads. Controller-
-        # bus and schedule families are intentionally deferred until setup is complete.
-        plant_metadata = await self._async_optional_probe(
-            "plant_metadata",
-            self.api.async_get_plant_metadata(),
-            status,
-        )
-        bus_errors = await self._async_optional_probe(
-            "bus_errors",
-            self.api.async_get_bus_errors(),
-            status,
+        # These cloud JSON reads populate entities during setup. Run them together so
+        # a Remocon response that legitimately takes close to a minute does not make
+        # the worst-case setup time grow by one timeout per endpoint.
+        (
+            plant_metadata,
+            plant_header,
+            plant_user_data,
+            bsb_boiler_data,
+            bus_errors,
+        ) = await asyncio.gather(
+            self._async_optional_probe(
+                "plant_metadata",
+                self.api.async_get_plant_metadata(),
+                status,
+            ),
+            self._async_optional_probe(
+                "plant_header",
+                self.api.async_get_plant_header(),
+                status,
+            ),
+            self._async_optional_probe(
+                "plant_user_data",
+                self.api.async_get_plant_user_data(),
+                status,
+            ),
+            self._async_optional_probe(
+                "bsb_boiler_data",
+                self.api.async_get_bsb_boiler_data(),
+                status,
+            ),
+            self._async_optional_probe(
+                "bus_errors",
+                self.api.async_get_bus_errors(),
+                status,
+            ),
         )
         for group_name in BSB_DISCOVERY_GROUPS:
             status[f"bsb_points:{group_name}"] = "deferred:background"
@@ -170,7 +194,6 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         )
         status["maintenance"] = "deferred:background"
         status["automated_monitoring"] = "deferred:background"
-        status["bsb_boiler_data"] = "deferred:background"
         status["bsb_plant_data"] = "deferred:background"
         status["menu_items"] = "deferred:background"
 
@@ -178,6 +201,9 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
             features=self._features,
             features_response=self.api.last_features_response,
             plant_metadata=plant_metadata if isinstance(plant_metadata, dict) else {},
+            plant_header=plant_header if isinstance(plant_header, dict) else {},
+            plant_user_data=plant_user_data if isinstance(plant_user_data, dict) else {},
+            bsb_boiler_data=bsb_boiler_data,
             bus_errors=bus_errors,
             probe_status=status,
         )
