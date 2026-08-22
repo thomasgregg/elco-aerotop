@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date
+from datetime import UTC, date, datetime, tzinfo
 from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
@@ -11,6 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfEnergy, UnitOfPressure, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
+from homeassistant.util import dt as dt_util
 
 from .capabilities import supports_cooling, supports_room_sensor
 from .const import BSB_ENERGY_HISTORY_ADDRESSES, BSB_ENTITY_ADDRESSES
@@ -21,6 +22,7 @@ from .models import (
     NumericVariable,
     bsb_point_available,
     bsb_point_date,
+    bsb_point_datetime,
     bsb_point_field_value,
     bsb_point_value,
 )
@@ -34,7 +36,7 @@ class ElcoSensor(ElcoAerotopEntity, SensorEntity):
         coordinator: ElcoDataUpdateCoordinator,
         key: str,
         name: str,
-        value_fn: Callable[[ElcoData], date | float | int | str | None],
+        value_fn: Callable[[ElcoData], date | datetime | float | int | str | None],
         *,
         temperature: bool = False,
         pressure: bool = False,
@@ -42,6 +44,7 @@ class ElcoSensor(ElcoAerotopEntity, SensorEntity):
         measurement: bool = False,
         energy: bool = False,
         date_sensor: bool = False,
+        timestamp_sensor: bool = False,
         available_fn: Callable[[ElcoData], bool] | None = None,
         enabled_default: bool = True,
     ) -> None:
@@ -68,9 +71,11 @@ class ElcoSensor(ElcoAerotopEntity, SensorEntity):
             self._attr_state_class = SensorStateClass.TOTAL
         elif date_sensor:
             self._attr_device_class = SensorDeviceClass.DATE
+        elif timestamp_sensor:
+            self._attr_device_class = SensorDeviceClass.TIMESTAMP
 
     @property
-    def native_value(self) -> date | float | int | str | None:
+    def native_value(self) -> date | datetime | float | int | str | None:
         return self._value_fn(self.coordinator.data)
 
     @property
@@ -110,6 +115,11 @@ def _has_system_item(data: ElcoData, item_id: str, zone: int = 0) -> bool:
 
 def _bsb_available(data: ElcoData, address: str) -> bool:
     return bsb_point_available(data.discovery.bsb_points.get(address))
+
+
+def _controller_clock(data: ElcoData, timezone: tzinfo) -> datetime | None:
+    value = bsb_point_datetime(data.discovery.bsb_points.get("327691"))
+    return value.replace(tzinfo=timezone) if value is not None else None
 
 
 def _zone_temperature_value(data: ElcoData, zone_number: int, attribute: str) -> float | None:
@@ -216,6 +226,7 @@ async def async_setup_entry(
     data = coordinator.data
     features = data.discovery.features
     entities: list[SensorEntity] = []
+    controller_timezone = dt_util.get_time_zone(hass.config.time_zone) or UTC
 
     metadata_specs = (
         ("gateway_serial", "Gateway serial", "gwSerial"),
@@ -234,6 +245,18 @@ async def async_setup_entry(
                 entity_category=EntityCategory.DIAGNOSTIC,
             )
         )
+
+    entities.append(
+        ElcoSensor(
+            coordinator,
+            "controller_clock",
+            "Controller clock",
+            lambda state: _controller_clock(state, controller_timezone),
+            timestamp_sensor=True,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            available_fn=lambda state: _bsb_available(state, "327691"),
+        )
+    )
 
     header_sensor_specs = (
         (

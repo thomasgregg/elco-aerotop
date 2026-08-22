@@ -4,6 +4,11 @@ All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
 ## Unreleased
 
+## 0.3.4
+
+- Expose Remocon's read-only **Time of day and date → Clock time** BSB value as a diagnostic
+  Controller clock timestamp entity.
+
 ## 0.3.3
 
 - Add API-only diagnostic entities for Remocon gateway connectivity, plant status, appliance

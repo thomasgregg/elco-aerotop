@@ -1,7 +1,7 @@
 """Tests for tolerant Remocon data parsing."""
 
 import json
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from custom_components.elco_aerotop.capabilities import supports_cooling, supports_room_sensor
@@ -18,6 +18,7 @@ from custom_components.elco_aerotop.models import (
     ZoneState,
     bsb_point_available,
     bsb_point_date,
+    bsb_point_datetime,
     bsb_point_field_value,
     bsb_point_value,
 )
@@ -242,6 +243,25 @@ def test_bsb_date_parses_live_flattened_read_data_points_value() -> None:
         }
     ) == date(2026, 6, 30)
     assert bsb_point_date({"valueAsString": "--/--/-- *:*:*", "fields": None}) is None
+
+
+def test_bsb_datetime_parses_compound_and_flattened_clock_values() -> None:
+    point = {
+        "fields": [
+            {"name": "yyyy", "valueAsNumber": 2026},
+            {"name": "MM", "valueAsString": "08"},
+            {"name": "dd", "value": 22},
+            {"name": "HH", "value": 22},
+            {"name": "mm", "value": 14},
+            {"name": "ss", "value": 9},
+        ]
+    }
+
+    assert bsb_point_datetime(point) == datetime(2026, 8, 22, 22, 14, 9)
+    assert bsb_point_datetime({"valueAsString": "2026/08/22 22:14:09", "fields": None}) == datetime(
+        2026, 8, 22, 22, 14, 9
+    )
+    assert bsb_point_datetime({"valueAsString": "--/--/-- *:*:*"}) is None
 
 
 def test_parse_current_bsb_holiday_fields_and_flags() -> None:

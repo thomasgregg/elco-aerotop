@@ -155,6 +155,62 @@ def bsb_point_date(point: Any) -> date | None:
         return None
 
 
+def bsb_point_datetime(point: Any) -> datetime | None:
+    """Return the controller-local date and time stored in a BSB datapoint."""
+    if not isinstance(point, dict):
+        return None
+    fields = point.get("fields")
+    if isinstance(fields, list):
+        components: dict[str, int] = {}
+        positional = ("yyyy", "MM", "dd", "HH", "mm", "ss")
+        for index, field_name in enumerate(positional):
+            # Month (``MM``) and minute (``mm``) differ only by case, so the
+            # general case-insensitive BSB field helper is not suitable here.
+            matching_field = next(
+                (
+                    field
+                    for field in fields
+                    if isinstance(field, dict)
+                    and field.get("name", field.get("label")) == field_name
+                ),
+                None,
+            )
+            if matching_field is None and index < len(fields) and isinstance(fields[index], dict):
+                matching_field = fields[index]
+            value = bsb_point_value(matching_field)
+            try:
+                components[field_name] = int(value)
+            except (TypeError, ValueError):
+                break
+        else:
+            try:
+                return datetime(
+                    components["yyyy"],
+                    components["MM"],
+                    components["dd"],
+                    components["HH"],
+                    components["mm"],
+                    components["ss"],
+                )
+            except ValueError:
+                pass
+
+    # ReadDataPoints commonly flattens the clock to ``YYYY/MM/DD HH:mm:ss``.
+    rendered = bsb_point_value(point)
+    if not isinstance(rendered, str):
+        return None
+    match = re.match(
+        r"^\s*(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})[ T](\d{1,2}):(\d{1,2}):(\d{1,2})(?:\s|$)",
+        rendered,
+    )
+    if match is None:
+        return None
+    try:
+        return datetime(*(int(component) for component in match.groups()))
+    except ValueError:
+        return None
+
+
 def bsb_point_available(point: Any) -> bool:
     """Return whether Remocon reports a currently readable BSB datapoint."""
     if not isinstance(point, dict):

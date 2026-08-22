@@ -208,6 +208,7 @@ see [Testing status and how to help](#testing-status-and-how-to-help).
 | Plant name | `sensor.<device>_plant_name` | Metadata | Plant metadata returns it |
 | Plant location | `sensor.<device>_plant_location` | Metadata | Structured location can be rendered |
 | Gateway firmware | `sensor.<device>_gateway_firmware` | Metadata | Plant metadata returns `gwFwVer`; Remocon labels the same value Connectivity Gateway software |
+| Controller clock | `sensor.<device>_controller_clock` | Timestamp | BSB Clock time (address `327691`) is readable; shown in Home Assistant's configured time zone |
 | Gateway online | `binary_sensor.<device>_gateway_online` | Connectivity | Plant-header API returns a connectivity flag |
 | Plant status | `sensor.<device>_plant_status` | Status | Plant-header API returns a status label or code |
 | Appliance model | `sensor.<device>_appliance_model` | Metadata | Plant-header API returns it |
@@ -231,6 +232,9 @@ see [Testing status and how to help](#testing-status-and-how-to-help).
 BSB line 7000 can return two simultaneous maintenance messages, so code and priority have two
 entities each. Raw structured maintenance, monitoring, and notice payloads remain in redacted Home
 Assistant diagnostics for fields that do not yet justify dedicated entities.
+
+Controller clock is read-only. It reflects Remocon's **Time of day and date → Clock time** value;
+the integration does not write or synchronize the controller clock.
 
 `sensor.<device>_gateway_firmware` is the only entity created for `gwFwVer`. Home Assistant also
 shows that same value in the device's built-in software-version field; this is device metadata,
