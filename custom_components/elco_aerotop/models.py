@@ -356,6 +356,8 @@ class ReadOnlyDiscovery:
     maintenance: Any = None
     bus_errors: Any = None
     bsb_points: dict[str, Any] = field(default_factory=dict)
+    bsb_plant_data: dict[str, Any] = field(default_factory=dict)
+    menu_items: dict[str, dict[str, Any]] = field(default_factory=dict)
     probe_status: dict[str, str] = field(default_factory=dict)
 
     def system_item(self, item_id: str, zone: int = 0) -> dict[str, Any] | None:

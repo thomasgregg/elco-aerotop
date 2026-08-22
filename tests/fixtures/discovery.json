@@ -93,6 +93,22 @@
       "valueAsNumber": 0.8
     }
   },
+  "bsb_plant_data": {
+    "gw": "<redacted>",
+    "hpOn": false,
+    "zones": {
+      "1": {
+        "holidays": [
+          {"index": 0, "from": "2026-01-01T00:00:00", "to": "2026-01-01T00:00:00", "osv": true}
+        ]
+      }
+    }
+  },
+  "menu_items": {
+    "119": {"id": 119, "value": -64, "unit": "dBm"},
+    "253": {"id": 253, "value": 3210, "unit": "h"},
+    "254": {"id": 254, "value": 420, "unit": "cycles"}
+  },
   "probe_status": {
     "system_items": "available",
     "schedule:ChZn1": "available",
@@ -100,6 +116,8 @@
     "metering": "available",
     "maintenance": "available",
     "bus_errors": "available",
-    "bsb_points": "available"
+    "bsb_points": "available",
+    "bsb_plant_data": "available",
+    "menu_items": "available"
   }
 }

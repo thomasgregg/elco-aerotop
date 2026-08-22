@@ -69,6 +69,8 @@ def test_anonymized_discovery_fixture_covers_every_endpoint_family() -> None:
         "maintenance",
         "bus_errors",
         "bsb_points",
+        "bsb_plant_data",
+        "menu_items",
     ):
         assert family in fixture
 

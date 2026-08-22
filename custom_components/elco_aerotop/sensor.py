@@ -403,9 +403,7 @@ async def async_setup_entry(
 
     if not _has_system_item(data, "HeatingCircuitPressure"):
         pressure_address = BSB_ENTITY_ADDRESSES["heating_circuit_pressure"]
-        if pressure_address in data.discovery.bsb_points or data.discovery.probe_status.get(
-            "bsb_points:plant_pressure", ""
-        ).startswith("unavailable"):
+        if data.zones:
             entities.append(
                 ElcoSensor(
                     coordinator,

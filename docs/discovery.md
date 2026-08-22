@@ -13,12 +13,19 @@ Home Assistant diagnostics contain:
 - plant-list metadata including serial, name, location, firmware, and system/link types;
 - every full `PlantHomeBsb/GetData` response used for the current plant and zones;
 - requested read-only system-data items;
+- the complete native mobile `bsbPlantData` snapshot;
+- every returned item from the bounded mobile menu catalog IDs 1–274;
 - supported heating, cooling, and domestic-hot-water programs;
 - metering, maintenance, and controller-error responses;
 - values returned for allowlisted heating-circuit and Aerotop BSB datapoints, queried in isolated
   JSON API groups;
 - a probe-status map showing `available`, `partially_available`, or an unavailable error class; and
 - a `response_schema` inventory of every observed JSON path and Python value type.
+
+Slow controller-backed families run after config-entry and entity-platform setup. Their initial
+diagnostic status is `deferred:background` and changes to `available`, `partially_available`, or an
+error class when the background pass completes. This prevents an optional schedule or controller
+timeout from delaying Home Assistant startup.
 
 The diagnostics implementation recursively redacts configured credentials and gateway IDs,
 common identity and location fields, serial numbers, technician details, and matching identifiers

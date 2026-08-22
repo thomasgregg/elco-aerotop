@@ -122,14 +122,14 @@ async def test_login_uses_antiforgery_cookie_and_json_credentials() -> None:
     await client.async_login()
 
     assert session.cookie_jar.cookies["__formRequestVerificationToken"] == "token-123"
-    assert session.calls[0][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.8")
+    assert session.calls[0][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.9")
     assert session.calls[1][2]["json"] == {
         "email": "user@example.com",
         "password": "secret",
         "rememberMe": False,
         "language": "English_Gb",
     }
-    assert session.calls[1][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.8")
+    assert session.calls[1][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.9")
     assert session.calls[0][2]["timeout"].total == 30
 
 
@@ -221,6 +221,37 @@ async def test_read_only_endpoint_families_accept_their_payload_shapes() -> None
     assert "addresses=2950516,2950542,2950544,2950546" in session.calls[-1][1]
     assert "340067" in session.calls[-1][1]
     assert "5834029" in session.calls[-1][1]
+
+
+@pytest.mark.asyncio
+async def test_broad_read_only_mobile_discovery_preserves_complete_payloads() -> None:
+    session = FakeSession(
+        [
+            *login_responses(),
+            FakeResponse(
+                json_data={
+                    "gw": "GATEWAY",
+                    "zones": {"1": {"holidays": [{"index": 0, "osv": True}]}},
+                }
+            ),
+            FakeResponse(
+                json_data=[
+                    {"id": 119, "value": -64, "unit": "dBm"},
+                    {"id": 253, "value": 3210, "unit": "h"},
+                ]
+            ),
+        ]
+    )
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+
+    bsb_data = await client.async_get_bsb_plant_data()
+    menu_items = await client.async_get_menu_items((119, 253))
+
+    assert bsb_data["zones"]["1"]["holidays"][0]["osv"] is True
+    assert menu_items["119"]["unit"] == "dBm"
+    assert menu_items["253"]["value"] == 3210
+    assert session.calls[2][1].endswith("/api/v2/remote/bsbPlantData/GATEWAY")
+    assert session.calls[3][1].endswith("/api/v2/menuItems/GATEWAY?menuItems=119,253")
 
 
 @pytest.mark.asyncio

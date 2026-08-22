@@ -72,8 +72,9 @@ account; it does not communicate with the heat pump over the local network.
 - Isolated cookie session for every configured Remocon account
 - Automatic heating-zone discovery
 - Full key capture for the gateway's Features and plant/zone `GetData` responses
-- Isolated read-only discovery of system data, schedules, metering, maintenance, errors, and
-  allowlisted BSB parameters
+- Isolated read-only discovery of the complete known system-property set, native BSB plant data,
+  supported mobile menu items, schedules, metering, maintenance, errors, and allowlisted BSB
+  parameters
 - Conservative five-minute polling interval by default
 - Configurable polling interval from 60 to 3,600 seconds
 - Read-only temperatures and operating-state entities
@@ -216,13 +217,26 @@ probes these non-mutating endpoint families:
 | Maintenance | Cloud maintenance response when the account is authorized for it | Approximately hourly |
 | Controller errors | Read-only bus-error response | Approximately hourly |
 | BSB | Allowlisted heating-circuit and Aerotop temperature/pressure datapoints, read in independent JSON API groups | Approximately hourly |
+| Native BSB plant snapshot | Complete plant, zone, capability, holiday, and setpoint response used by Remocon mobile clients | Approximately hourly |
+| Mobile menu items | Every supported result returned when requesting the bounded public catalog IDs 1–274, including model-dependent service counters and heat-pump values | Approximately hourly |
 
-Each optional family has an independent availability result. Most probes use a 15-second timeout;
-controller-backed BSB groups use 30 seconds. A missing, unsupported, or changed optional endpoint
-is recorded in diagnostics but does not make the core plant and zone entities unavailable. BSB
-groups are isolated so one rejected group cannot discard values from supported groups. These raw
-discovery responses are not exposed wholesale as entity attributes, which avoids oversized Home
-Assistant states and accidental identifier leaks.
+Each optional family has an independent availability result. Core state and fast metadata load in
+the config-entry setup path; controller-bus, schedule, metering, maintenance, and broad mobile-API
+probes begin as a managed background task only after Home Assistant has set up the entity
+platforms. Consequently, a slow optional endpoint cannot produce a slow-integration setup warning.
+Most probes use a 15-second timeout; controller-backed BSB groups use 30 seconds. A missing,
+unsupported, or changed optional endpoint is recorded in diagnostics but does not make the core
+plant and zone entities unavailable. BSB groups are isolated so one rejected group cannot discard
+values from supported groups. These raw discovery responses are not exposed wholesale as entity
+attributes, which avoids oversized Home Assistant states and accidental identifier leaks.
+
+“Complete capture” means every key and value returned by every endpoint the integration calls. It
+does not mean every theoretical BSB controller address: Remocon does not publish that address map,
+and unsupported addresses can block or time out a gateway. The integration therefore combines the
+full known mobile property list, the bounded mobile menu catalog, complete native BSB snapshots,
+and a reviewed BSB address allowlist. Newly observed values are first retained in redacted
+diagnostics; entities are added only after their response type, unit, availability behavior, and
+meaning are verified.
 
 Known BSB entities remain registered when Remocon flags a datapoint as out of service, failed, or
 carrying a bus/communication error. Home Assistant marks the entity unavailable for that snapshot
@@ -234,10 +248,13 @@ maintenance actions, or metering commands. See [`docs/discovery.md`](docs/discov
 capture and fixture workflow.
 
 The earlier add-on's “maintenance code” values came from the BSB **7000 – Message** menu, not from
-the Remocon maintenance API. The add-on obtained them by scraping the rendered website. This
-integration will not do that. Their controller-internal JSON API addresses have not yet been
-verified, so they are not guessed or exposed as entities. Current controller faults are covered
-independently by the native bus-error entities above.
+the Remocon maintenance API. The four displayed fields are two simultaneous maintenance-code and
+priority pairs. The add-on obtained them by scraping the rendered website and therefore did not
+contain the controller-internal JSON address needed here. This integration will not scrape that
+page or guess an address. It now captures the full native BSB plant snapshot, all returned menu
+items, the cloud maintenance response, and current bus-error records so the structured source can
+be identified from real diagnostics. The dedicated maintenance entities will be added once that
+address and its multi-field response are verified.
 
 ## Installation
 

@@ -43,6 +43,8 @@ The following calls expand model discovery without enabling any corresponding wr
 |---|---|
 | Plant metadata | `GET /api/v2/remote/plants/lite` |
 | System data | `POST /api/v2/remote/dataItems/{gateway}/get?umsys=si` |
+| Native BSB plant snapshot | `GET /api/v2/remote/bsbPlantData/{gateway}` |
+| Mobile menu items | `GET /api/v2/menuItems/{gateway}?menuItems=1,2,...,274` |
 | Time programs | `GET /api/v2/remote/timeProgs/{gateway}/{program}?umsys=si` |
 | Metering | `POST /R2/PlantMetering/GetData/{gateway}` |
 | Maintenance | `GET /R2/PlantData/GetMaintenanceData?id={gateway}` |
@@ -59,6 +61,10 @@ updates.
 The cloud maintenance endpoint and the controller's BSB `7000 – Message` group are different data
 sources. BSB maintenance-code entities require verified internal datapoint IDs; the integration
 does not infer them from the visible line number.
+
+The menu-item IDs are a bounded mobile-API catalog, not raw BSB addresses. The API omits values a
+gateway does not support. Capturing the returned set is therefore safe capability discovery; it
+does not authorize a matching write or prove that an absent feature can be enabled.
 
 ## Writing state
 

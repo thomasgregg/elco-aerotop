@@ -2,6 +2,20 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.2.9
+
+- Move controller-bus, schedule, metering, maintenance, and broad mobile-API discovery into a
+  managed background task after platform setup. Optional endpoint timeouts no longer hold the
+  config entry in Home Assistant's startup path.
+- Capture the complete structured `bsbPlantData` mobile response in redacted diagnostics.
+- Query the bounded Remocon menu-item catalog (IDs 1–274) read-only and retain every item the
+  configured gateway actually returns. This includes model-dependent signal, runtime, cycle,
+  resistor, defrost, cooling, flow, return, compressor, and anti-legionella values.
+- Expand `dataItems` discovery to the complete known plant and zone property lists, including
+  automatic thermoregulation, anti-legionella, hybrid/buffer, quiet-mode, and virtual-zone fields.
+- Keep all newly discovered fields diagnostic-only until a real gateway response establishes
+  availability, type, unit, and semantics; existing write endpoints remain unchanged.
+
 ## 0.2.8
 
 - Mark the backward-compatible read-only zone-mode sensor as diagnostic and disable it by default

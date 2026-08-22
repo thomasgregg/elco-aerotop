@@ -43,6 +43,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _clear_legacy_configuration_url(hass, api.gateway_id)
+    coordinator.start_deferred_discovery()
     return True
 
 
@@ -61,4 +62,5 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload an ELCO Aerotop config entry."""
+    entry.runtime_data.cancel_deferred_discovery()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

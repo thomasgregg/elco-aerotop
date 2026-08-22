@@ -14,6 +14,7 @@ from yarl import URL
 
 from .const import (
     BSB_DISCOVERY_ADDRESSES,
+    BSB_PLANT_DATA_PATH,
     BSB_READ_PATH,
     BUS_ERRORS_PATH,
     DATA_ITEMS_PATH,
@@ -22,6 +23,8 @@ from .const import (
     GLOBAL_DATA_ITEM_IDS,
     LOGIN_PATH,
     MAINTENANCE_PATH,
+    MENU_ITEM_IDS,
+    MENU_ITEMS_PATH,
     METERING_PATH,
     PLANTS_LITE_PATH,
     REQUEST_TIMEOUT,
@@ -295,6 +298,42 @@ class ElcoApiClient:
                 zone_number = 0
             result[f"{item['id']}:{zone_number}"] = item
         return result
+
+    async def async_get_bsb_plant_data(self) -> dict[str, Any]:
+        """Fetch the complete read-only BSB plant snapshot used by mobile clients."""
+        payload = await self._request_payload(
+            "GET",
+            BSB_PLANT_DATA_PATH.format(gateway_id=self.gateway_id),
+            retry_auth=False,
+            invalidate_auth=False,
+        )
+        data = payload.get("data", payload) if isinstance(payload, dict) else payload
+        if not isinstance(data, dict):
+            raise ElcoResponseError("BSB plant data returned an unexpected payload")
+        return data
+
+    async def async_get_menu_items(
+        self,
+        item_ids: tuple[int, ...] = MENU_ITEM_IDS,
+    ) -> dict[str, dict[str, Any]]:
+        """Fetch all supported values from the bounded mobile menu-item catalog."""
+        payload = await self._request_payload(
+            "GET",
+            MENU_ITEMS_PATH.format(
+                gateway_id=self.gateway_id,
+                item_ids=",".join(str(item_id) for item_id in item_ids),
+            ),
+            retry_auth=False,
+            invalidate_auth=False,
+        )
+        items = payload.get("data", payload) if isinstance(payload, dict) else payload
+        if not isinstance(items, list):
+            raise ElcoResponseError("Menu items returned an unexpected payload")
+        return {
+            str(item["id"]): item
+            for item in items
+            if isinstance(item, dict) and item.get("id") is not None
+        }
 
     async def async_get_plant_metadata(self) -> dict[str, Any]:
         """Fetch metadata, serial, and location from the native plant list."""

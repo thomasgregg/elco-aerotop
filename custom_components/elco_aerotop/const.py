@@ -10,7 +10,7 @@ DEFAULT_BASE_URL: Final = "https://www.remocon-net.remotethermo.com"
 DEFAULT_SCAN_INTERVAL: Final = 300
 MIN_SCAN_INTERVAL: Final = 60
 REQUEST_TIMEOUT: Final = 30
-USER_AGENT: Final = "ELCO-Aerotop-Home-Assistant/0.2.8"
+USER_AGENT: Final = "ELCO-Aerotop-Home-Assistant/0.2.9"
 
 CONF_BASE_URL: Final = "base_url"
 CONF_GATEWAY_ID: Final = "gateway_id"
@@ -26,6 +26,8 @@ SAVE_DHW_PATH: Final = "/R2/PlantDhwBsb/Save/{gateway_id}"
 SET_DATA_PATH: Final = "/R2/PlantHomeBsb/SetData/{gateway_id}"
 
 DATA_ITEMS_PATH: Final = "/api/v2/remote/dataItems/{gateway_id}/get?umsys=si"
+BSB_PLANT_DATA_PATH: Final = "/api/v2/remote/bsbPlantData/{gateway_id}"
+MENU_ITEMS_PATH: Final = "/api/v2/menuItems/{gateway_id}?menuItems={item_ids}"
 PLANTS_LITE_PATH: Final = "/api/v2/remote/plants/lite"
 TIME_PROGRAM_PATH: Final = "/api/v2/remote/timeProgs/{gateway_id}/{program}?umsys=si"
 METERING_PATH: Final = "/R2/PlantMetering/GetData/{gateway_id}"
@@ -95,6 +97,18 @@ GLOBAL_DATA_ITEM_IDS: Final = (
     "DhwTimeProgComfortTemp",
     "DhwTimeProgEconomyTemp",
     "IsHeatingPumpOn",
+    "AutomaticThermoregulation",
+    "AntilegionellaOnOff",
+    "AntilegionellaTemp",
+    "AntilegionellaFreq",
+    "HybridMode",
+    "BufferControlMode",
+    "BufferTimeProgComfortHeatingTemp",
+    "BufferTimeProgEconomyHeatingTemp",
+    "BufferTimeProgComfortCoolingTemp",
+    "BufferTimeProgEconomyCoolingTemp",
+    # This spelling is used by the Remocon API.
+    "IsQuite",
 )
 ZONE_DATA_ITEM_IDS: Final = (
     "ZoneHeatRequest",
@@ -109,6 +123,20 @@ ZONE_DATA_ITEM_IDS: Final = (
     "HeatingFlowOffset",
     "CoolingFlowTemp",
     "CoolingFlowOffset",
+    "VirtTempOffsetHeat",
+    "ZoneName",
+    "VirtTempSetpointHeat",
+    "VirtTempSetpointCool",
+    "VirtComfortTemp",
+    "VirtReducedTemp",
+    "VirtTempOffsetCool",
 )
+
+# The public Remocon mobile-client catalog currently spans IDs 1 through 274.
+# Unknown or unsupported IDs are simply omitted by the read-only menu-items API.
+# Requesting the complete bounded catalog avoids treating one Aerotop model's
+# feature set as universal, while keeping arbitrary controller-bus reads out of
+# the integration.
+MENU_ITEM_IDS: Final = tuple(range(1, 275))
 
 DEFAULT_UPDATE_INTERVAL: Final = timedelta(seconds=DEFAULT_SCAN_INTERVAL)
