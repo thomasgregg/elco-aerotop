@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import voluptuous as vol
@@ -21,6 +22,8 @@ from .const import (
     DOMAIN,
     MIN_SCAN_INTERVAL,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _user_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
@@ -69,9 +72,11 @@ class ElcoAerotopConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 await self._validate(user_input)
             except ElcoAuthenticationError:
                 errors["base"] = "invalid_auth"
-            except ElcoConnectionError:
+            except ElcoConnectionError as err:
+                _LOGGER.debug("Unable to connect to Remocon during setup: %s", err)
                 errors["base"] = "cannot_connect"
             except Exception:  # noqa: BLE001 - config flows must turn unknown API errors into UI errors
+                _LOGGER.exception("Unexpected error while validating the Remocon connection")
                 errors["base"] = "unknown"
             else:
                 await self.async_set_unique_id(user_input[CONF_GATEWAY_ID])
@@ -102,7 +107,8 @@ class ElcoAerotopConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 await self._validate(candidate)
             except ElcoAuthenticationError:
                 errors["base"] = "invalid_auth"
-            except ElcoConnectionError:
+            except ElcoConnectionError as err:
+                _LOGGER.debug("Unable to connect to Remocon during reauthentication: %s", err)
                 errors["base"] = "cannot_connect"
             else:
                 return self.async_update_reload_and_abort(entry, data_updates=user_input)

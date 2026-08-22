@@ -19,6 +19,7 @@ from .const import (
     SAVE_DHW_PATH,
     SET_DATA_PATH,
     SET_TEMPERATURE_PATH,
+    USER_AGENT,
 )
 from .models import ElcoData, PlantState, ZoneState
 
@@ -69,6 +70,7 @@ class ElcoApiClient:
     @property
     def _json_headers(self) -> dict[str, str]:
         return {
+            "User-Agent": USER_AGENT,
             "Accept": "application/json, text/javascript, */*; q=0.01",
             "Ajax-Request": "json",
             "Content-Type": "application/json; charset=UTF-8",
@@ -86,6 +88,7 @@ class ElcoApiClient:
             try:
                 response = await self._session.get(
                     self._url(LOGIN_PATH),
+                    headers={"User-Agent": USER_AGENT},
                     timeout=self._timeout,
                 )
                 async with response:
