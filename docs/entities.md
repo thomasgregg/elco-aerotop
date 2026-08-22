@@ -209,6 +209,7 @@ see [Testing status and how to help](#testing-status-and-how-to-help).
 | Plant location | `sensor.<device>_plant_location` | Metadata | Structured location can be rendered |
 | Gateway firmware | `sensor.<device>_gateway_firmware` | Metadata | Plant metadata returns `gwFwVer`; Remocon labels the same value Connectivity Gateway software |
 | Controller clock | `sensor.<device>_controller_clock` | Timestamp | BSB Clock time (address `327691`) is readable; shown in Home Assistant's configured time zone |
+| Last successful update | `sensor.<device>_last_successful_update` | Timestamp | A complete core Remocon data refresh has succeeded |
 | Gateway online | `binary_sensor.<device>_gateway_online` | Connectivity | Plant-header API returns a connectivity flag |
 | Plant status | `sensor.<device>_plant_status` | Status | Plant-header API returns a status label or code |
 | Appliance model | `sensor.<device>_appliance_model` | Metadata | Plant-header API returns it |

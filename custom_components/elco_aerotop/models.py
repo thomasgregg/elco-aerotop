@@ -502,4 +502,4 @@ class ElcoData:
     zones: dict[int, ZoneState] = field(default_factory=dict)
     get_data_responses: list[dict[str, Any]] = field(default_factory=list)
     discovery: ReadOnlyDiscovery = field(default_factory=ReadOnlyDiscovery)
-    captured_at: datetime = field(default_factory=datetime.now, compare=False)
+    captured_at: datetime = field(default_factory=lambda: datetime.now(UTC), compare=False)

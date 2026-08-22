@@ -1,7 +1,7 @@
 """Tests for tolerant Remocon data parsing."""
 
 import json
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from custom_components.elco_aerotop.capabilities import supports_cooling, supports_room_sensor
@@ -12,6 +12,7 @@ from custom_components.elco_aerotop.const import (
 )
 from custom_components.elco_aerotop.models import (
     BsbHoliday,
+    ElcoData,
     NumericVariable,
     PlantState,
     ReadOnlyDiscovery,
@@ -22,6 +23,12 @@ from custom_components.elco_aerotop.models import (
     bsb_point_field_value,
     bsb_point_value,
 )
+
+
+def test_elco_data_capture_timestamp_is_utc() -> None:
+    data = ElcoData("gateway", PlantState.parse({}))
+
+    assert data.captured_at.tzinfo is UTC
 
 
 def test_parse_web_r2_plant_names() -> None:

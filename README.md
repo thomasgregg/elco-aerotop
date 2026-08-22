@@ -102,7 +102,9 @@ Remocon installation metadata is exposed as diagnostic entities when its JSON AP
 value. This includes gateway online state, overall plant status, appliance model and serial,
 plant owner, account language, plant name/location, gateway serial, and gateway version. Owner
 phone fields are optional and disabled by default. The controller's read-only clock is exposed as
-a diagnostic timestamp. Remocon's **Connectivity Gateway** software
+a diagnostic timestamp. A separate **Last successful update** timestamp records when the
+integration most recently completed a core Remocon data capture, including successful polls whose
+values did not change. Remocon's **Connectivity Gateway** software
 value and the integration's **Gateway firmware** value both come from `gwFwVer`; the integration
 creates one version sensor and also reuses that value in Home Assistant's device information.
 

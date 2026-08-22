@@ -4,6 +4,12 @@ All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
 ## Unreleased
 
+## 0.3.7
+
+- Add an enabled diagnostic **Last successful update** timestamp that advances after every
+  successful core Remocon data capture, even when all returned operating values are unchanged,
+  and remains visible if a later refresh fails.
+
 ## 0.3.6
 
 - Prepare the validated release required for submission to the default HACS store and clarify that

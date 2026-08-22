@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -71,6 +71,26 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         self._polls_until_slow_discovery = 0
         self._initial_discovery_complete = False
         self._background_discovery_task: asyncio.Task[None] | None = None
+        self.last_successful_update: datetime | None = None
+        self._successful_update_listeners: set[Callable[[], None]] = set()
+
+    @callback
+    def async_add_successful_update_listener(
+        self, update_callback: Callable[[], None]
+    ) -> Callable[[], None]:
+        """Register a callback for every successful core data capture."""
+        self._successful_update_listeners.add(update_callback)
+
+        def remove_listener() -> None:
+            self._successful_update_listeners.discard(update_callback)
+
+        return remove_listener
+
+    @callback
+    def _notify_successful_update_listeners(self) -> None:
+        """Notify timestamp consumers even when the returned data is unchanged."""
+        for update_callback in tuple(self._successful_update_listeners):
+            update_callback()
 
     async def _async_optional_probe(
         self,
@@ -397,7 +417,10 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
                 system_items=system_items or {},
                 probe_status=status,
             )
-            return replace(data, discovery=discovery)
+            updated_data = replace(data, discovery=discovery)
+            self.last_successful_update = data.captured_at
+            self._notify_successful_update_listeners()
+            return updated_data
         except ElcoAuthenticationError as err:
             raise ConfigEntryAuthFailed from err
         except ElcoConnectionError as err:

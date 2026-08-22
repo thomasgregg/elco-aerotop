@@ -86,6 +86,34 @@ class ElcoSensor(ElcoAerotopEntity, SensorEntity):
         )
 
 
+class ElcoLastSuccessfulUpdateSensor(ElcoAerotopEntity, SensorEntity):
+    """Timestamp the latest successful core Remocon data capture."""
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_name = "Last successful update"
+
+    def __init__(self, coordinator: ElcoDataUpdateCoordinator) -> None:
+        super().__init__(coordinator, "last_successful_update")
+
+    @property
+    def native_value(self) -> datetime | None:
+        """Return the latest successful capture time."""
+        return self.coordinator.last_successful_update
+
+    @property
+    def available(self) -> bool:
+        """Keep the last good timestamp visible during later update failures."""
+        return self.native_value is not None
+
+    async def async_added_to_hass(self) -> None:
+        """Listen for captures even when all plant values are unchanged."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_successful_update_listener(self.async_write_ha_state)
+        )
+
+
 def _as_number(value: Any) -> float | None:
     if isinstance(value, bool):
         return None
@@ -225,7 +253,7 @@ async def async_setup_entry(
     coordinator: ElcoDataUpdateCoordinator = entry.runtime_data
     data = coordinator.data
     features = data.discovery.features
-    entities: list[SensorEntity] = []
+    entities: list[SensorEntity] = [ElcoLastSuccessfulUpdateSensor(coordinator)]
     controller_timezone = dt_util.get_time_zone(hass.config.time_zone) or UTC
 
     metadata_specs = (
