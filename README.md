@@ -14,31 +14,12 @@
   <img src="https://img.shields.io/badge/HACS-Custom-41BDF5" alt="HACS custom repository">
 </p>
 
-<p align="center">
-  <strong><a href="https://github.com/thomasgregg/elco-aerotop/blob/main/docs/entities.md">View the complete entity, sensor, control, diagnostics, and energy catalogue →</a></strong>
-</p>
-
-> [!IMPORTANT]
-> **Project status: early development.** Read access is non-destructive. Write requests match the
-> current Remocon web application, but retained values still need broader testing on real ELCO
-> gateways and Aerotop models. Begin with monitoring, then test one conservative setpoint change
-> while you can verify the result on the controller or official application.
-
-> [!WARNING]
-> **Real-system testers are wanted.** The write controls, holiday calendars, and read-only schedule
-> discovery have automated coverage but have not yet been sufficiently field-tested across ELCO
-> models, firmware versions, and populated schedules. If you can test them, please report the
-> controller model, observed result, and a carefully inspected redacted diagnostic export in a
-> [GitHub issue](https://github.com/thomasgregg/elco-aerotop/issues). Never include credentials,
-> session cookies, access tokens, or unredacted personal data.
-
 ## Contents
 
 - [Overview](#overview)
-- [Features](#features)
+- [What you can do](#what-you-can-do)
 - [Entities](#entities)
-  - [Complete entity catalogue](https://github.com/thomasgregg/elco-aerotop/blob/main/docs/entities.md)
-- [Read-only capability discovery](#read-only-capability-discovery)
+- [How data is discovered](#how-data-is-discovered)
 - [Installation](#installation)
 - [Home Assistant setup](#home-assistant-setup)
 - [Options](#options)
@@ -52,9 +33,41 @@
 
 ## Overview
 
-ELCO Aerotop communicates directly with the structured JSON endpoints used by the Remocon.net web
-application. It appears in Home Assistant as one device with native thermostats, a domestic-hot-
-water controller, sensors, binary sensors, calendars, and advanced number/select controls.
+ELCO Aerotop brings a Remocon-connected heat pump into Home Assistant as one native device. It is
+intended for everyday monitoring, heating and hot-water control, automations, and troubleshooting
+without having to open the Remocon website.
+
+The integration uses the structured JSON endpoints behind Remocon.net. It is a **cloud-polling**
+integration, so it requires internet access and a working Remocon.net account; it does not connect
+directly to the heat pump over the local network.
+
+> [!IMPORTANT]
+> **Project status: early development.** Monitoring is non-destructive. Write controls follow the
+> current Remocon request format but still need broader testing across ELCO gateways and Aerotop
+> models. Start with monitoring and verify the first setpoint change on the controller or in the
+> official application.
+
+> [!WARNING]
+> **Real-system testers are wanted.** Write controls, holiday calendars, and schedule discovery
+> have automated coverage but limited field testing. Reports from other models and populated
+> schedules are welcome in [GitHub Issues](https://github.com/thomasgregg/elco-aerotop/issues).
+> Inspect diagnostic exports before sharing them and never include credentials, cookies, tokens,
+> or personal data.
+
+## What you can do
+
+| Use case | Home Assistant experience |
+|---|---|
+| Monitor the system | Temperatures, pressure, flow values, operating state, and heat demand |
+| Control room heating | A thermostat for each supported heating zone |
+| Control hot water | A native water-heater entity with target temperature and operating mode |
+| Build automations | Use temperatures, demand, operating state, and holiday periods as inputs |
+| Find problems | Controller errors, probe faults, maintenance codes, and appliance-health data |
+| Investigate efficiency | Optional historical heat, cooling, input-energy, and performance records |
+
+The exact controls and readings depend on what the gateway reports. Unsupported capabilities are
+not presented as working controls, while temporarily missing controller values become unavailable
+instead of being guessed.
 
 ```text
 Home Assistant entities
@@ -65,126 +78,48 @@ ELCO Aerotop coordinator ──► Remocon.net cloud ──► ELCO gateway ─�
           └── one fresh, validated and serialized request path for all writes
 ```
 
-This is a **cloud-polling** integration. It requires internet access and a working Remocon.net
-account; it does not communicate with the heat pump over the local network.
-
-## Features
-
-- UI-based setup—no YAML configuration required
-- Automatic login, session renewal, and Home Assistant reauthentication flow
-- Isolated cookie session for every configured Remocon account
-- Automatic heating-zone discovery
-- Full key capture for the gateway's Features and plant/zone `GetData` responses
-- Isolated read-only discovery of the complete known system-property set, native BSB plant data,
-  supported mobile menu items, BSB-native schedules, metering, automated monitoring, predictive
-  maintenance, errors, annual energy history, and allowlisted BSB parameters
-- Conservative 60-minute polling interval by default
-- Configurable polling interval from 60 to 3,600 seconds
-- Read-only temperatures and operating-state entities
-- Native Home Assistant thermostat control for each supported heating zone
-- Native Home Assistant water-heater control for domestic hot water
-- Writable heating and domestic-hot-water setpoints
-- Writable heating-zone and domestic-hot-water operating modes
-- Limits, step sizes, and mode options supplied by Remocon where available
-- Fresh-state read before every command to preserve related controller values
-- Per-device command locking to prevent overlapping writes
-- Redacted Home Assistant diagnostics
-- HACS, hassfest, lint, formatting, and automated test validation
+Setup is handled through the Home Assistant interface with no YAML required. Heating zones and
+available values are discovered automatically. The default polling interval is one hour, writes
+are serialized and validated against current gateway data, and authentication renewal is handled
+through Home Assistant's normal reauthentication flow.
 
 ## Entities
 
-> [!TIP]
-> **Looking for the large tables?** Open the
-> **[complete entity catalogue](https://github.com/thomasgregg/elco-aerotop/blob/main/docs/entities.md)**.
-> It lists every control, sensor, binary sensor, calendar, configuration value, diagnostic, and
-> energy-history family with its entity-ID pattern, default state, access, and creation condition.
+All entities belong to the ELCO Aerotop device, and the exact set is determined by the gateway's
+capabilities. The default device page focuses on native thermostat and hot-water controls,
+everyday measurements, and important fault information. Alternative controls, specialist
+diagnostics, low-level BSB values, and the 80 historical energy entities are available but mostly
+disabled by default to avoid overwhelming a normal installation.
 
-All entities belong to one ELCO Aerotop device, and the exact set is capability-driven. Primary
-thermostat and domestic-hot-water controls plus everyday operational values are enabled by
-default. Advanced configuration, duplicate controls, low-level BSB diagnostics, and all 80 fixed
-energy-history entities are organized separately and selectively disabled to keep the device page
-useful.
+The [entity reference](docs/entities.md) contains the complete tables, entity-ID patterns, default
+states, creation conditions, read/write behavior, and explanations of maintenance, holiday, and
+energy values. Existing entity IDs and enabled/disabled choices are preserved during upgrades;
+new defaults apply only when an entity is first registered.
 
-The entity reference explains every entity family, including:
+## How data is discovered
 
-- the Home Assistant section and default enabled state;
-- exact entity-ID patterns and conditional creation rules;
-- read-only versus read/write behavior;
-- thermostat, DHW, holiday, maintenance, and energy semantics;
-- why native controls overlap with some compatibility entities;
-- unavailable versus disabled entities and upgrade behavior.
+Remocon gateways differ by controller, firmware, and installed options. The integration therefore
+starts with the capabilities and values reported by the gateway, then performs additional
+read-only discovery for:
 
-See the
-**[complete entity catalogue](https://github.com/thomasgregg/elco-aerotop/blob/main/docs/entities.md)**
-before enabling large diagnostic or energy groups. Existing entity IDs and existing
-enabled/disabled choices are preserved during upgrades; new defaults apply only when an entity is
-first registered.
+- plant and gateway information;
+- heating, hot-water, zone, and controller-bus values;
+- schedules and holiday periods;
+- errors, maintenance messages, and appliance-health information; and
+- metering and historical energy records.
 
-## Read-only capability discovery
+Core heating data loads first. Slower optional requests run independently in the background, so an
+unsupported schedule, maintenance, or BSB endpoint does not prevent the integration from loading.
+A temporarily failed datapoint becomes unavailable and is restored automatically after a
+successful read.
 
-The normal `Features` and `PlantHomeBsb/GetData` responses are retained in the in-memory snapshot
-so diagnostics can inventory every JSON key returned by the gateway. The integration additionally
-probes these non-mutating endpoint families:
+All runtime data comes from structured JSON endpoints; rendered web pages are not scraped. The
+integration also avoids scanning arbitrary controller addresses because unsupported BSB requests
+can delay a gateway. New response fields are captured in redacted diagnostics and become entities
+only after their meaning, unit, and availability behavior have been verified.
 
-| Family | Data collected | Refresh |
-|---|---|---:|
-| Plant metadata | Serial, plant name, structured location, gateway firmware, link/system type, and API version | Approximately hourly |
-| System data | Pressure, flow values, plant/DHW state, and zone values requested by stable item IDs | Every normal poll |
-| Time programs | Complete BSB-native heating, supported cooling, and DHW weekly programs from `PlantTimeProgBsb/GetData` | Approximately hourly |
-| Metering | The complete metering response, without assuming one firmware-specific schema | Approximately hourly |
-| Maintenance | Cloud maintenance response when the account is authorized for it | Approximately hourly |
-| Automated monitoring | Five appliance-health levels, urgency/connection details, and structured predictive-maintenance notices | Approximately hourly |
-| BSB appliance data | Structured controller/boiler identification returned by Remocon | Approximately hourly |
-| Controller errors | Read-only bus-error response | Approximately hourly |
-| BSB | Allowlisted heating-circuit, Aerotop temperature/pressure, time/default, maintenance, and annual-energy datapoints, read in independent JSON API groups | Approximately hourly |
-| Native BSB plant snapshot | Complete plant, zone, capability, holiday, and setpoint response used by Remocon mobile clients | Approximately hourly |
-| Mobile menu items | Supported service values from IDs 119–130 plus feature-selected VMC, SLP, hybrid, heat-pump, and cascade/BMS catalog families on non-BSB controller families | Approximately hourly |
-
-Each optional family has an independent availability result. Core state and fast metadata load in
-the config-entry setup path; controller-bus, schedule, metering, maintenance, and broad mobile-API
-probes begin as a managed background task only after Home Assistant has set up the entity
-platforms. Consequently, a slow optional endpoint cannot produce a slow-integration setup warning.
-Most probes use a 15-second timeout; controller-backed BSB groups use 30 seconds. A missing,
-unsupported, or changed optional endpoint is recorded in diagnostics but does not make the core
-plant and zone entities unavailable. BSB groups are isolated so one rejected group cannot discard
-values from supported groups. These raw discovery responses are not exposed wholesale as entity
-attributes, which avoids oversized Home Assistant states and accidental identifier leaks.
-
-“Complete capture” means every key and value returned by every endpoint the integration calls. It
-does not mean every theoretical BSB controller address: Remocon does not publish that address map,
-and unsupported addresses can block or time out a gateway. The integration therefore combines the
-full known mobile property list, feature-selected mobile menu families, complete native BSB snapshots,
-and a reviewed BSB address allowlist. Newly observed values are first retained in redacted
-diagnostics; entities are added only after their response type, unit, availability behavior, and
-meaning are verified.
-
-Known BSB entities remain registered when Remocon flags a datapoint as out of service, failed, or
-carrying a bus/communication error. Home Assistant marks the entity unavailable for that snapshot
-and restores it when a later BSB read succeeds. A returned datapoint with no current value is shown
-as unknown. Enum datapoints use the labels supplied by Remocon instead of raw numeric codes.
-
-Discovery is strictly read-only. It does not add generic BSB writing, schedule editing,
-maintenance actions, or metering commands. See [`docs/discovery.md`](docs/discovery.md) for the
-capture and fixture workflow.
-
-The earlier add-on's “maintenance code” values came from the BSB **7000 – Message** menu, not from
-the Remocon maintenance API. An authenticated protocol inspection verified controller-internal
-address `327836` and its four-field JSON response: maintenance code 1, priority 1, maintenance code
-2, and priority 2. These values are exposed as read-only diagnostic sensors. The address is read in
-its own discovery group so a controller timeout cannot affect other BSB values. Runtime operation
-uses only the structured `ReadDataPoints` JSON endpoint; the integration does not scrape the
-website.
-
-Remocon's mobile `menuItems` endpoint is not a substitute on Aerotop/BSB plants. It is used by the
-Galevo controller family and returns HTTP 500 for valid, individually token-authenticated IDs when
-`Features` reports BSB system type 5. The integration records that family as unsupported instead of
-repeatedly sending requests that cannot succeed.
-
-Remocon advertises a separate metering capability, but some BSB Aerotop controllers expose annual
-energy history even when `Features.hasMetering` is false. The integration therefore reads the ten
-verified BSB annual records independently of the cloud metering feature flag. The 80 internal
-addresses were captured from structured BSB menu metadata and are queried as ten isolated,
-read-only JSON slot groups so one controller-bus failure cannot hide the other annual records.
+For endpoint coverage, maintenance and energy implementation details, and the anonymized fixture
+workflow, see [Gateway discovery and anonymized fixtures](docs/discovery.md).
 
 ## Installation
 

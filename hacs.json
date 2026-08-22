@@ -1,4 +1,6 @@
 {
+  "filename": "elco_aerotop.zip",
   "name": "ELCO Aerotop",
-  "render_readme": true
+  "render_readme": true,
+  "zip_release": true
 }

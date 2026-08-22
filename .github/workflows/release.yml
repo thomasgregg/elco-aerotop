@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  release:
+    types:
+      - published
+
+permissions: {}
+
+jobs:
+  release-zip:
+    name: Publish release asset
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+
+      - name: Build integration ZIP
+        run: >-
+          git archive
+          --format=zip
+          --output="$RUNNER_TEMP/elco_aerotop.zip"
+          HEAD:custom_components/elco_aerotop
+
+      - name: Verify integration ZIP
+        run: |
+          unzip -t "$RUNNER_TEMP/elco_aerotop.zip"
+          unzip -l "$RUNNER_TEMP/elco_aerotop.zip" | grep -q ' manifest.json$'
+
+      - name: Upload integration ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: >-
+          gh release upload "$RELEASE_TAG"
+          "$RUNNER_TEMP/elco_aerotop.zip"
+          --clobber
