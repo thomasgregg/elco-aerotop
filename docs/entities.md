@@ -1,4 +1,4 @@
-# Complete entity reference
+# Complete entity, sensor, and control catalogue
 
 [Back to the main README](../README.md)
 

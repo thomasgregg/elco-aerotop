@@ -14,6 +14,10 @@
   <img src="https://img.shields.io/badge/HACS-Custom-41BDF5" alt="HACS custom repository">
 </p>
 
+<p align="center">
+  <strong><a href="https://github.com/thomasgregg/elco-aerotop/blob/main/docs/entities.md">View the complete entity, sensor, control, diagnostics, and energy catalogue →</a></strong>
+</p>
+
 > [!IMPORTANT]
 > **Project status: early development.** Read access is non-destructive. Write requests match the
 > current Remocon web application, but retained values still need broader testing on real ELCO
@@ -33,7 +37,7 @@
 - [Overview](#overview)
 - [Features](#features)
 - [Entities](#entities)
-  - [Complete entity reference](docs/entities.md)
+  - [Complete entity catalogue](https://github.com/thomasgregg/elco-aerotop/blob/main/docs/entities.md)
 - [Read-only capability discovery](#read-only-capability-discovery)
 - [Installation](#installation)
 - [Home Assistant setup](#home-assistant-setup)
@@ -51,16 +55,6 @@
 ELCO Aerotop communicates directly with the structured JSON endpoints used by the Remocon.net web
 application. It appears in Home Assistant as one device with native thermostats, a domestic-hot-
 water controller, sensors, binary sensors, calendars, and advanced number/select controls.
-
-Unlike the earlier add-on approach, this integration:
-
-- does not launch a browser or scrape rendered HTML;
-- does not require a Home Assistant add-on or separate container;
-- does not create entities through MQTT discovery;
-- supports both reading and controlled writes;
-- uses Home Assistant's config flow, device registry, coordinator, reauthentication, and
-  diagnostics systems;
-- discovers the heating zones reported by Remocon.
 
 ```text
 Home Assistant entities
@@ -99,6 +93,12 @@ account; it does not communicate with the heat pump over the local network.
 
 ## Entities
 
+> [!TIP]
+> **Looking for the large tables?** Open the
+> **[complete entity catalogue](https://github.com/thomasgregg/elco-aerotop/blob/main/docs/entities.md)**.
+> It lists every control, sensor, binary sensor, calendar, configuration value, diagnostic, and
+> energy-history family with its entity-ID pattern, default state, access, and creation condition.
+
 All entities belong to one ELCO Aerotop device, and the exact set is capability-driven. Primary
 thermostat and domestic-hot-water controls plus everyday operational values are enabled by
 default. Advanced configuration, duplicate controls, low-level BSB diagnostics, and all 80 fixed
@@ -114,9 +114,11 @@ The entity reference explains every entity family, including:
 - why native controls overlap with some compatibility entities;
 - unavailable versus disabled entities and upgrade behavior.
 
-See the **[complete entity reference](docs/entities.md)** before enabling large diagnostic or energy
-groups. Existing entity IDs and existing enabled/disabled choices are preserved during upgrades;
-new defaults apply only when an entity is first registered.
+See the
+**[complete entity catalogue](https://github.com/thomasgregg/elco-aerotop/blob/main/docs/entities.md)**
+before enabling large diagnostic or energy groups. Existing entity IDs and existing
+enabled/disabled choices are preserved during upgrades; new defaults apply only when an entity is
+first registered.
 
 ## Read-only capability discovery
 

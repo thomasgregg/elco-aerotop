@@ -2,6 +2,12 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## Unreleased
+
+- Remove historical add-on comparisons from the README and make the separate complete entity
+  catalogue prominent through HACS-compatible absolute links at the top, contents, and Entities
+  section.
+
 ## 0.3.1
 
 - Apply a consistent Home Assistant entity policy: primary native controls and everyday
