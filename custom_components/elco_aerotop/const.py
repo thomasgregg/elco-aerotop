@@ -10,7 +10,7 @@ DEFAULT_BASE_URL: Final = "https://www.remocon-net.remotethermo.com"
 DEFAULT_SCAN_INTERVAL: Final = 300
 MIN_SCAN_INTERVAL: Final = 60
 REQUEST_TIMEOUT: Final = 30
-USER_AGENT: Final = "ELCO-Aerotop-Home-Assistant/0.2.11"
+USER_AGENT: Final = "ELCO-Aerotop-Home-Assistant/0.2.12"
 
 CONF_BASE_URL: Final = "base_url"
 CONF_GATEWAY_ID: Final = "gateway_id"
@@ -133,11 +133,14 @@ ZONE_DATA_ITEM_IDS: Final = (
     "VirtTempOffsetCool",
 )
 
-# The public Remocon mobile-client catalog currently spans IDs 1 through 274,
-# with 132 absent from the enum. The endpoint returns only supported items but
-# responds with HTTP 500 when the complete catalog is sent in one URL, so the
-# coordinator reads these documented IDs in small serialized batches.
-MENU_ITEM_IDS: Final = (*range(1, 132), *range(133, 275))
-MENU_ITEM_BATCH_SIZE: Final = 15
+# The mobile endpoint returns HTTP 500 when a request contains an item the
+# configured gateway does not support. Read documented service/diagnostic IDs
+# individually and select optional families from the Features response.
+MENU_ITEM_BASE_IDS: Final = tuple(range(119, 131))
+MENU_ITEM_VMC_IDS: Final = tuple(range(133, 192))
+MENU_ITEM_SLP_IDS: Final = tuple(range(192, 221))
+MENU_ITEM_HYBRID_IDS: Final = tuple(range(221, 251))
+MENU_ITEM_HP_IDS: Final = tuple(range(251, 270))
+MENU_ITEM_CASCADE_IDS: Final = tuple(range(270, 275))
 
 DEFAULT_UPDATE_INTERVAL: Final = timedelta(seconds=DEFAULT_SCAN_INTERVAL)

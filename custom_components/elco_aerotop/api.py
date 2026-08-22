@@ -23,7 +23,7 @@ from .const import (
     GLOBAL_DATA_ITEM_IDS,
     LOGIN_PATH,
     MAINTENANCE_PATH,
-    MENU_ITEM_IDS,
+    MENU_ITEM_BASE_IDS,
     MENU_ITEMS_PATH,
     METERING_PATH,
     MOBILE_LOGIN_PATH,
@@ -370,7 +370,7 @@ class ElcoApiClient:
 
     async def async_get_menu_items(
         self,
-        item_ids: tuple[int, ...] = MENU_ITEM_IDS,
+        item_ids: tuple[int, ...] = MENU_ITEM_BASE_IDS,
     ) -> dict[str, dict[str, Any]]:
         """Fetch all supported values from the bounded mobile menu-item catalog."""
         payload = await self._request_mobile_payload(

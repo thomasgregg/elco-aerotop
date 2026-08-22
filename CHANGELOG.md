@@ -2,6 +2,16 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.2.12
+
+- Read mobile menu items one at a time after live token-authenticated requests proved that one
+  unsupported ID causes Remocon to reject an otherwise valid batch.
+- Select model-specific catalog families from `Features`: VMC 133–191, SLP 192–220, hybrid
+  221–250, heat pump 251–269, and cascade/BMS 270–274. All systems also probe the compact
+  service/diagnostic range 119–130.
+- Preserve every successful item and mark the aggregate `partially_available` when other IDs are
+  unsupported by that gateway.
+
 ## 0.2.11
 
 - Authenticate mobile-only menu-item reads with Remocon's separate JSON token flow. Live v0.2.10

@@ -218,7 +218,7 @@ probes these non-mutating endpoint families:
 | Controller errors | Read-only bus-error response | Approximately hourly |
 | BSB | Allowlisted heating-circuit and Aerotop temperature/pressure datapoints, read in independent JSON API groups | Approximately hourly |
 | Native BSB plant snapshot | Complete plant, zone, capability, holiday, and setpoint response used by Remocon mobile clients | Approximately hourly |
-| Mobile menu items | Every supported result returned from serialized reads of the bounded public catalog IDs 1–274, including model-dependent service counters and heat-pump values | Approximately hourly |
+| Mobile menu items | Supported service values from IDs 119–130 plus feature-selected VMC, SLP, hybrid, heat-pump, and cascade/BMS catalog families | Approximately hourly |
 
 Each optional family has an independent availability result. Core state and fast metadata load in
 the config-entry setup path; controller-bus, schedule, metering, maintenance, and broad mobile-API
@@ -233,7 +233,7 @@ attributes, which avoids oversized Home Assistant states and accidental identifi
 “Complete capture” means every key and value returned by every endpoint the integration calls. It
 does not mean every theoretical BSB controller address: Remocon does not publish that address map,
 and unsupported addresses can block or time out a gateway. The integration therefore combines the
-full known mobile property list, the bounded mobile menu catalog, complete native BSB snapshots,
+full known mobile property list, feature-selected mobile menu families, complete native BSB snapshots,
 and a reviewed BSB address allowlist. Newly observed values are first retained in redacted
 diagnostics; entities are added only after their response type, unit, availability behavior, and
 meaning are verified.

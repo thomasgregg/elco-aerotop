@@ -21,7 +21,16 @@ from .api import (
     ElcoConnectionError,
 )
 from .capabilities import supports_cooling
-from .const import BSB_DISCOVERY_GROUPS, DOMAIN, MENU_ITEM_BATCH_SIZE, MENU_ITEM_IDS
+from .const import (
+    BSB_DISCOVERY_GROUPS,
+    DOMAIN,
+    MENU_ITEM_BASE_IDS,
+    MENU_ITEM_CASCADE_IDS,
+    MENU_ITEM_HP_IDS,
+    MENU_ITEM_HYBRID_IDS,
+    MENU_ITEM_SLP_IDS,
+    MENU_ITEM_VMC_IDS,
+)
 from .models import ElcoData, ReadOnlyDiscovery
 
 _LOGGER = logging.getLogger(__name__)
@@ -91,6 +100,25 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         ):
             programs.append("Dhw")
         return programs, has_cooling
+
+    def _menu_item_ids(self) -> tuple[int, ...]:
+        """Return documented diagnostic IDs relevant to advertised capabilities."""
+        assert self._features is not None
+        item_ids = list(MENU_ITEM_BASE_IDS)
+        if self._features.get("hasVmc", False):
+            item_ids.extend(MENU_ITEM_VMC_IDS)
+        if self._features.get("hasSlp", False):
+            item_ids.extend(MENU_ITEM_SLP_IDS)
+        if self._features.get("hybridSys", False):
+            item_ids.extend(MENU_ITEM_HYBRID_IDS)
+        if self._features.get("hpSys", False):
+            item_ids.extend(MENU_ITEM_HP_IDS)
+        if any(
+            self._features.get(key, False)
+            for key in ("bmsActive", "cascadeSys", "hpCascadeSys", "hpCascadeSysPcm5")
+        ):
+            item_ids.extend(MENU_ITEM_CASCADE_IDS)
+        return tuple(item_ids)
 
     async def _async_refresh_core_discovery(
         self,
@@ -201,24 +229,20 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
                 status,
             )
             menu_items: dict[str, dict[str, Any]] = {}
-            available_menu_batches = 0
-            menu_batches = [
-                MENU_ITEM_IDS[offset : offset + MENU_ITEM_BATCH_SIZE]
-                for offset in range(0, len(MENU_ITEM_IDS), MENU_ITEM_BATCH_SIZE)
-            ]
-            for batch in menu_batches:
-                batch_name = f"menu_items:{batch[0]}-{batch[-1]}"
+            available_menu_items = 0
+            menu_item_ids = self._menu_item_ids()
+            for item_id in menu_item_ids:
                 returned_items = await self._async_optional_probe(
-                    batch_name,
-                    self.api.async_get_menu_items(batch),
+                    f"menu_item:{item_id}",
+                    self.api.async_get_menu_items((item_id,)),
                     status,
                 )
                 if isinstance(returned_items, dict):
                     menu_items.update(returned_items)
-                    available_menu_batches += 1
-            if available_menu_batches == len(menu_batches):
+                    available_menu_items += 1
+            if available_menu_items == len(menu_item_ids):
                 status["menu_items"] = "available"
-            elif available_menu_batches:
+            elif available_menu_items:
                 status["menu_items"] = "partially_available"
             else:
                 status["menu_items"] = "unavailable"

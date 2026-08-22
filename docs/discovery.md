@@ -14,7 +14,7 @@ Home Assistant diagnostics contain:
 - every full `PlantHomeBsb/GetData` response used for the current plant and zones;
 - requested read-only system-data items;
 - the complete native mobile `bsbPlantData` snapshot;
-- every returned item from the bounded mobile menu catalog IDs 1–274;
+- every returned item from the base service range and feature-selected mobile menu families;
 - supported heating, cooling, and domestic-hot-water programs;
 - metering, maintenance, and controller-error responses;
 - values returned for allowlisted heating-circuit and Aerotop BSB datapoints, queried in isolated
