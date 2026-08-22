@@ -10,7 +10,7 @@ DEFAULT_BASE_URL: Final = "https://www.remocon-net.remotethermo.com"
 DEFAULT_SCAN_INTERVAL: Final = 300
 MIN_SCAN_INTERVAL: Final = 60
 REQUEST_TIMEOUT: Final = 30
-USER_AGENT: Final = "ELCO-Aerotop-Home-Assistant/0.2.9"
+USER_AGENT: Final = "ELCO-Aerotop-Home-Assistant/0.2.10"
 
 CONF_BASE_URL: Final = "base_url"
 CONF_GATEWAY_ID: Final = "gateway_id"
@@ -132,11 +132,11 @@ ZONE_DATA_ITEM_IDS: Final = (
     "VirtTempOffsetCool",
 )
 
-# The public Remocon mobile-client catalog currently spans IDs 1 through 274.
-# Unknown or unsupported IDs are simply omitted by the read-only menu-items API.
-# Requesting the complete bounded catalog avoids treating one Aerotop model's
-# feature set as universal, while keeping arbitrary controller-bus reads out of
-# the integration.
-MENU_ITEM_IDS: Final = tuple(range(1, 275))
+# The public Remocon mobile-client catalog currently spans IDs 1 through 274,
+# with 132 absent from the enum. The endpoint returns only supported items but
+# responds with HTTP 500 when the complete catalog is sent in one URL, so the
+# coordinator reads these documented IDs in small serialized batches.
+MENU_ITEM_IDS: Final = (*range(1, 132), *range(133, 275))
+MENU_ITEM_BATCH_SIZE: Final = 15
 
 DEFAULT_UPDATE_INTERVAL: Final = timedelta(seconds=DEFAULT_SCAN_INTERVAL)

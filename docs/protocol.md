@@ -44,7 +44,7 @@ The following calls expand model discovery without enabling any corresponding wr
 | Plant metadata | `GET /api/v2/remote/plants/lite` |
 | System data | `POST /api/v2/remote/dataItems/{gateway}/get?umsys=si` |
 | Native BSB plant snapshot | `GET /api/v2/remote/bsbPlantData/{gateway}` |
-| Mobile menu items | `GET /api/v2/menuItems/{gateway}?menuItems=1,2,...,274` |
+| Mobile menu items | `GET /api/v2/menuItems/{gateway}?menuItems=...` in documented-ID batches of 15 |
 | Time programs | `GET /api/v2/remote/timeProgs/{gateway}/{program}?umsys=si` |
 | Metering | `POST /R2/PlantMetering/GetData/{gateway}` |
 | Maintenance | `GET /R2/PlantData/GetMaintenanceData?id={gateway}` |

@@ -21,7 +21,7 @@ from .api import (
     ElcoConnectionError,
 )
 from .capabilities import supports_cooling
-from .const import BSB_DISCOVERY_GROUPS, DOMAIN
+from .const import BSB_DISCOVERY_GROUPS, DOMAIN, MENU_ITEM_BATCH_SIZE, MENU_ITEM_IDS
 from .models import ElcoData, ReadOnlyDiscovery
 
 _LOGGER = logging.getLogger(__name__)
@@ -200,11 +200,28 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
                 self.api.async_get_bsb_plant_data(),
                 status,
             )
-            menu_items = await self._async_optional_probe(
-                "menu_items",
-                self.api.async_get_menu_items(),
-                status,
-            )
+            menu_items: dict[str, dict[str, Any]] = {}
+            available_menu_batches = 0
+            menu_batches = [
+                MENU_ITEM_IDS[offset : offset + MENU_ITEM_BATCH_SIZE]
+                for offset in range(0, len(MENU_ITEM_IDS), MENU_ITEM_BATCH_SIZE)
+            ]
+            for batch in menu_batches:
+                batch_name = f"menu_items:{batch[0]}-{batch[-1]}"
+                returned_items = await self._async_optional_probe(
+                    batch_name,
+                    self.api.async_get_menu_items(batch),
+                    status,
+                )
+                if isinstance(returned_items, dict):
+                    menu_items.update(returned_items)
+                    available_menu_batches += 1
+            if available_menu_batches == len(menu_batches):
+                status["menu_items"] = "available"
+            elif available_menu_batches:
+                status["menu_items"] = "partially_available"
+            else:
+                status["menu_items"] = "unavailable"
 
             self._slow_discovery = replace(
                 base,
@@ -213,7 +230,7 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
                 maintenance=maintenance,
                 bsb_points=bsb_points,
                 bsb_plant_data=(bsb_plant_data if isinstance(bsb_plant_data, dict) else {}),
-                menu_items=menu_items if isinstance(menu_items, dict) else {},
+                menu_items=menu_items,
                 probe_status=status,
             )
             current = self.data

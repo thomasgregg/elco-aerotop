@@ -218,7 +218,7 @@ probes these non-mutating endpoint families:
 | Controller errors | Read-only bus-error response | Approximately hourly |
 | BSB | Allowlisted heating-circuit and Aerotop temperature/pressure datapoints, read in independent JSON API groups | Approximately hourly |
 | Native BSB plant snapshot | Complete plant, zone, capability, holiday, and setpoint response used by Remocon mobile clients | Approximately hourly |
-| Mobile menu items | Every supported result returned when requesting the bounded public catalog IDs 1–274, including model-dependent service counters and heat-pump values | Approximately hourly |
+| Mobile menu items | Every supported result returned from serialized reads of the bounded public catalog IDs 1–274, including model-dependent service counters and heat-pump values | Approximately hourly |
 
 Each optional family has an independent availability result. Core state and fast metadata load in
 the config-entry setup path; controller-bus, schedule, metering, maintenance, and broad mobile-API

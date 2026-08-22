@@ -2,6 +2,13 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.2.10
+
+- Read the documented mobile menu-item catalog in serialized batches of 15. Live v0.2.9
+  diagnostics proved that Remocon returns HTTP 500 when all IDs are placed in one request.
+- Exclude the undocumented gap at ID 132 and preserve successful batches if another catalog family
+  is rejected, reporting `partially_available` instead of discarding all returned values.
+
 ## 0.2.9
 
 - Move controller-bus, schedule, metering, maintenance, and broad mobile-API discovery into a
