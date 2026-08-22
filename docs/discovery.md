@@ -9,11 +9,12 @@ entities backed by values observed during the first coordinator refresh.
 Home Assistant diagnostics contain:
 
 - the full `Features` response and parsed feature map;
+- plant-list metadata including serial, name, location, firmware, and system/link types;
 - every full `PlantHomeBsb/GetData` response used for the current plant and zones;
 - requested read-only system-data items;
 - supported heating, cooling, and domestic-hot-water programs;
 - metering, maintenance, and controller-error responses;
-- values returned for allowlisted BSB addresses 700, 710, 712, 714, 720, and 730;
+- values returned for allowlisted heating-circuit and Aerotop BSB datapoints;
 - a probe-status map showing `available` or an unavailable error class; and
 - a `response_schema` inventory of every observed JSON path and Python value type.
 

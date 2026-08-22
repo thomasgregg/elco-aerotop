@@ -15,6 +15,11 @@ def test_diagnostics_redact_identifiers_and_known_secrets() -> None:
         "gateway-ABC123": {"value": "safe"},
         "zones": [{"name": "Living room", "value": "ABC123 at home@example.test"}],
         "maintenance": {"technician": "Named person"},
+        "plant": {
+            "gwSerial": "SERIAL-987",
+            "plantName": "Private home",
+            "location": {"addr": "Private street", "cityName": "Private city"},
+        },
         "safe": 23.5,
     }
 
@@ -25,6 +30,9 @@ def test_diagnostics_redact_identifiers_and_known_secrets() -> None:
     assert sanitized["zones"][0]["name"] == "<redacted>"
     assert sanitized["zones"][0]["value"] == "<redacted> at <redacted>"
     assert sanitized["maintenance"]["technician"] == "<redacted>"
+    assert sanitized["plant"]["gwSerial"] == "<redacted>"
+    assert sanitized["plant"]["plantName"] == "<redacted>"
+    assert sanitized["plant"]["location"] == "<redacted>"
     assert sanitized["safe"] == 23.5
 
 
@@ -63,3 +71,19 @@ def test_anonymized_discovery_fixture_covers_every_endpoint_family() -> None:
         "bsb_points",
     ):
         assert family in fixture
+
+
+def test_real_gateway_fixture_is_anonymized_and_preserves_sentinel_fields() -> None:
+    fixture = json.loads(
+        (Path(__file__).parent / "fixtures" / "aerotop_one_zone.json").read_text(encoding="utf-8")
+    )
+
+    assert fixture["gateway_id"] == "<redacted>"
+    assert fixture["features"]["hpSys"] is True
+    assert fixture["features"]["hasMetering"] is False
+    assert fixture["plant_metadata"]["gwSerial"] == "<redacted>"
+    assert fixture["get_data"]["zoneData"]["hasRoomSensor"] is False
+    assert fixture["get_data"]["zoneData"]["roomTemp"] == 0
+    assert fixture["get_data"]["zoneData"]["coolComfortTemp"]["value"] == 0
+    assert fixture["system_items"]["ChFlowTemp:0"]["readOnly"] is True
+    assert "<redacted>" in json.dumps(fixture)

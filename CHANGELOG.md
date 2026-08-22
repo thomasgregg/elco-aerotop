@@ -2,6 +2,22 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.2.2
+
+- Add the native plant-list endpoint for gateway serial, plant name, structured location, firmware,
+  system type, link type, and MQTT API version.
+- Show gateway serial and firmware in Home Assistant device information and add diagnostic sensors
+  for gateway serial, plant name, plant location, and firmware when returned.
+- Add controller-error count and problem entities from the verified bus-errors endpoint; current
+  error records are available as bounded state attributes.
+- Replace BSB display line numbers with the controller's internal read addresses and query known
+  Aerotop flow, return, setpoint, gas, source, hot-gas, and pressure values.
+- Serialize controller-bus probes to prevent overlapping BSB and schedule reads from timing out.
+- Do not query metering when the gateway explicitly reports that metering is unsupported.
+- Suppress zero-filled cooling, holiday, flame, and room-temperature placeholders using the real
+  gateway capability flags captured in the anonymized one-zone fixture.
+- Expand diagnostic redaction for plant names, locations, addresses, and every serial-like field.
+
 ## 0.2.1
 
 - Prevent an authorization response from an optional discovery endpoint from incorrectly starting

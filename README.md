@@ -102,6 +102,11 @@ current value, limits, or allowed options needed to send a validated command.
 |---|---|---:|---:|---|
 | Outside temperature | `sensor.<device>_outside_temperature` | Plant | °C | Outdoor temperature reported by the ELCO controller. |
 | Domestic hot water temperature | `sensor.<device>_domestic_hot_water_temperature` | Plant | °C | Current temperature measured in the DHW storage tank. |
+| Gateway serial | `sensor.<device>_gateway_serial` | Diagnostic | — | Gateway serial returned by the native plant-list API. |
+| Plant name | `sensor.<device>_plant_name` | Diagnostic | — | Remocon plant name. |
+| Plant location | `sensor.<device>_plant_location` | Diagnostic | — | Address and locality configured for the plant. |
+| Gateway firmware | `sensor.<device>_gateway_firmware` | Diagnostic | — | Gateway firmware version. |
+| Controller error count | `sensor.<device>_controller_error_count` | Diagnostic | — | Number of current records returned by the controller-error API. |
 | Heating circuit pressure | `sensor.<device>_heating_circuit_pressure` | Plant | bar | System pressure from the read-only system-data endpoint. |
 | Heating circuit flow temperature | `sensor.<device>_heating_circuit_flow_temperature` | Plant | °C | Current primary heating-flow temperature. |
 | Heating circuit flow setpoint temperature | `sensor.<device>_heating_circuit_flow_setpoint_temperature` | Plant | °C | Current primary heating-flow target. |
@@ -125,6 +130,12 @@ current value, limits, or allowed options needed to send a validated command.
 | Heating circuit 714 frost protection setpoint | `sensor.<device>_heating_circuit_714_frost_protection_setpoint` | BSB | °C | Read-only controller parameter 714. |
 | Heating circuit 720 heating curve slope | `sensor.<device>_heating_circuit_720_heating_curve_slope` | BSB | — | Read-only controller parameter 720. |
 | Heating circuit 730 summer/winter heating limit | `sensor.<device>_heating_circuit_730_summer_winter_heating_limit` | BSB | °C | Read-only controller parameter 730. |
+| Heat pump flow temperature | `sensor.<device>_heat_pump_flow_temperature` | BSB | °C | Aerotop heat-pump flow temperature when the BSB datapoint is available. |
+| Heat pump return temperature | `sensor.<device>_heat_pump_return_temperature` | BSB | °C | Aerotop heat-pump return temperature. |
+| Heat pump flow setpoint | `sensor.<device>_heat_pump_flow_setpoint` | BSB | °C | Aerotop heat-pump flow target. |
+| Heat pump gas temperature | `sensor.<device>_heat_pump_gas_temperature` | BSB | °C | Heat-pump gas temperature datapoint. |
+| Source outlet temperature | `sensor.<device>_source_outlet_temperature` | BSB | °C | Heat-source outlet temperature. |
+| Hot gas temperature | `sensor.<device>_hot_gas_temperature` | BSB | °C | Heat-pump hot-gas temperature. |
 
 Temperature sensors use Home Assistant's `temperature` device class and `measurement` state class.
 
@@ -133,6 +144,7 @@ Temperature sensors use Home Assistant's `temperature` device class and `measure
 | Entity name | Typical entity ID pattern | Scope | Device class | Description |
 |---|---|---:|---|---|
 | Heat pump running | `binary_sensor.<device>_heat_pump_running` | Plant | Running | Indicates that the heat pump is reported as running. |
+| Controller error | `binary_sensor.<device>_controller_error` | Diagnostic | Problem | Turns on when the bus-error endpoint reports records. Up to ten current records are included in the entity attributes. |
 | Flame on | `binary_sensor.<device>_flame_on` | Plant | Running | Burner/flame state when supplied by the controller. |
 | Domestic hot water enabled | `binary_sensor.<device>_domestic_hot_water_enabled` | Plant | Running | Whether domestic-hot-water operation is enabled. |
 | Outside temperature sensor problem | `binary_sensor.<device>_outside_temperature_sensor_problem` | Plant | Problem | Controller error flag for the outdoor probe. |
@@ -173,12 +185,13 @@ probes these non-mutating endpoint families:
 
 | Family | Data collected | Refresh |
 |---|---|---:|
+| Plant metadata | Serial, plant name, structured location, gateway firmware, link/system type, and API version | Approximately hourly |
 | System data | Pressure, flow values, plant/DHW state, and zone values requested by stable item IDs | Every normal poll |
 | Time programs | Heating, supported cooling, and DHW weekly programs | Approximately hourly |
 | Metering | The complete metering response, without assuming one firmware-specific schema | Approximately hourly |
-| Maintenance | The complete maintenance response | Approximately hourly |
+| Maintenance | Cloud maintenance response when the account is authorized for it | Approximately hourly |
 | Controller errors | Read-only bus-error response | Approximately hourly |
-| BSB | Allowlisted addresses 700, 710, 712, 714, 720, and 730 | Approximately hourly |
+| BSB | Allowlisted heating-circuit and Aerotop temperature/pressure datapoints | Approximately hourly |
 
 Each optional family has an independent 15-second timeout and availability result. A missing,
 unsupported, or changed optional endpoint is recorded in diagnostics but does not make the core
@@ -188,6 +201,11 @@ entity attributes, which avoids oversized Home Assistant states and accidental i
 Discovery is strictly read-only. It does not add generic BSB writing, schedule editing,
 maintenance actions, or metering commands. See [`docs/discovery.md`](docs/discovery.md) for the
 capture and fixture workflow.
+
+The earlier add-on's “maintenance code” values came from the BSB **7000 – Message** menu, not from
+the Remocon maintenance API. Their controller-internal addresses have not yet been verified, so
+they are not guessed or exposed as entities. Current controller faults are covered independently
+by the native bus-error entities above.
 
 ## Installation
 

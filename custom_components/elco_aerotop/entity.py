@@ -17,9 +17,15 @@ class ElcoAerotopEntity(CoordinatorEntity[ElcoDataUpdateCoordinator]):
     def __init__(self, coordinator: ElcoDataUpdateCoordinator, key: str) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.api.gateway_id}_{key}"
+        metadata = coordinator.data.discovery.plant_metadata
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, coordinator.api.gateway_id)},
             manufacturer="ELCO",
-            model="Aerotop / BSB",
+            model=str(metadata.get("wheModel") or "Aerotop / BSB"),
             name=f"ELCO Aerotop {coordinator.api.gateway_id}",
+            serial_number=str(metadata.get("gwSerial") or coordinator.api.gateway_id),
+            sw_version=(str(metadata["gwFwVer"]) if metadata.get("gwFwVer") else None),
+            configuration_url=(
+                f"{coordinator.api.base_url}/BsbPlantDashboard/Index/{coordinator.api.gateway_id}"
+            ),
         )

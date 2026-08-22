@@ -111,14 +111,14 @@ async def test_login_uses_antiforgery_cookie_and_json_credentials() -> None:
     await client.async_login()
 
     assert session.cookie_jar.cookies["__formRequestVerificationToken"] == "token-123"
-    assert session.calls[0][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.1")
+    assert session.calls[0][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.2")
     assert session.calls[1][2]["json"] == {
         "email": "user@example.com",
         "password": "secret",
         "rememberMe": False,
         "language": "English_Gb",
     }
-    assert session.calls[1][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.1")
+    assert session.calls[1][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.2")
     assert session.calls[0][2]["timeout"].total == 30
 
 
@@ -207,7 +207,30 @@ async def test_read_only_endpoint_families_accept_their_payload_shapes() -> None
 
     assert "/timeProgs/GATEWAY/ChZn1?umsys=si" in session.calls[2][1]
     assert session.calls[3][2]["json"] == {"features": {}, "hasCooling": False}
-    assert "addresses=700,710,712,714,720,730" in session.calls[-1][1]
+    assert "addresses=2950516,2950544,2950565,2950546" in session.calls[-1][1]
+    assert "340067" in session.calls[-1][1]
+    assert "5834029" in session.calls[-1][1]
+
+
+@pytest.mark.asyncio
+async def test_plant_metadata_matches_gateway_id_or_serial() -> None:
+    plants = [
+        {
+            "gwId": "internal-id",
+            "gwSerial": "GATEWAY",
+            "plantName": "Home",
+            "location": {"cityName": "Example City"},
+            "gwFwVer": "1.2.3",
+        }
+    ]
+    session = FakeSession([*login_responses(), FakeResponse(json_data=plants)])
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+
+    metadata = await client.async_get_plant_metadata()
+
+    assert metadata["plantName"] == "Home"
+    assert metadata["location"]["cityName"] == "Example City"
+    assert session.calls[-1][1].endswith("/api/v2/remote/plants/lite")
 
 
 @pytest.mark.asyncio

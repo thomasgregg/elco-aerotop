@@ -1,5 +1,6 @@
 """Tests for tolerant Remocon data parsing."""
 
+from custom_components.elco_aerotop.capabilities import supports_cooling, supports_room_sensor
 from custom_components.elco_aerotop.models import (
     NumericVariable,
     PlantState,
@@ -109,3 +110,28 @@ def test_read_only_discovery_resolves_system_items() -> None:
 
     assert discovery.system_value("ZoneMeasuredTemp", 1) == 22.4
     assert discovery.system_item("Missing", 0) is None
+
+
+def test_capability_checks_reject_zero_filled_unsupported_values() -> None:
+    zone = ZoneState.parse(
+        1,
+        {
+            "hasRoomSensor": False,
+            "roomTemp": 0,
+            "isCoolingActive": False,
+            "coolComfortTemp": {"value": 0, "min": 0, "max": 0, "step": 0},
+            "coolReducedTemp": {"value": 0, "min": 0, "max": 0, "step": 0},
+        },
+    )
+
+    assert supports_room_sensor(zone) is False
+    assert (
+        supports_cooling({"hasTwoCoolingTemp": False, "distinctHeatCoolSetpoints": False}, zone)
+        is False
+    )
+
+
+def test_capability_checks_accept_real_cooling_values() -> None:
+    zone = ZoneState.parse(1, {"coolComfortTemp": {"value": 24}})
+
+    assert supports_cooling({}, zone) is True

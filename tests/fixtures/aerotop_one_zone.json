@@ -1,0 +1,157 @@
+{
+  "fixture": "anonymized real-gateway schema with synthetic values",
+  "gateway_id": "<redacted>",
+  "plant_metadata": {
+    "umSys": "si",
+    "gwId": "<redacted>",
+    "gwSerial": "<redacted>",
+    "plantName": "<redacted>",
+    "location": "<redacted>",
+    "gwSysType": 5,
+    "utcOffset": 120,
+    "gwLink": 1,
+    "gwFwVer": "1.2.3",
+    "controlledByGuest": false,
+    "mqttApiVersion": 3
+  },
+  "features": {
+    "zones": [
+      {
+        "num": 1,
+        "name": "<redacted>",
+        "roomSens": true,
+        "geofenceDeroga": false,
+        "virtInfo": null,
+        "isHidden": false
+      }
+    ],
+    "solar": false,
+    "convBoiler": false,
+    "commBoiler": false,
+    "hpSys": true,
+    "hybridSys": false,
+    "cascadeSys": false,
+    "dhwProgSupported": true,
+    "virtualZones": false,
+    "hasVmc": false,
+    "extendedTimeProg": false,
+    "hasBoiler": false,
+    "pilotSupported": false,
+    "isVmcR2": false,
+    "isEvo2": false,
+    "dhwHidden": false,
+    "dhwBoilerPresent": false,
+    "dhwModeChangeable": true,
+    "hvInputOff": false,
+    "autoThermoReg": false,
+    "hasMetering": false,
+    "weatherProvider": 0,
+    "hasFireplace": false,
+    "hasSlp": false,
+    "hasEm20": false,
+    "hasEm30": false,
+    "hasTwoCoolingTemp": false,
+    "bmsActive": false,
+    "hpCascadeSys": false,
+    "hpCascadeSysPcm5": false,
+    "hpCascadeConfig": -1,
+    "bufferTimeProgAvailable": false,
+    "distinctHeatCoolSetpoints": false,
+    "hasZoneNames": false,
+    "zoneManagerStandAlone": false,
+    "hydraulicScheme": -1,
+    "preHeatingSupported": false,
+    "hasGahp": false,
+    "hasDhwTimeProgTemperatures": 2,
+    "zigbeeActive": false,
+    "hasSlpAloneOnBus": false,
+    "isSlpCascade": false,
+    "hasZeroColdWaterProg": false,
+    "systemServices": null,
+    "isGSWHCommercialAloneOnBus": false,
+    "isGswhCommercialCascade": false
+  },
+  "get_data": {
+    "plantData": {
+      "outsideTemp": 12.3,
+      "hasOutsideTempProbe": true,
+      "dhwComfortTemp": {"min": 44.0, "max": 55.0, "value": 48.0, "step": 1.0},
+      "dhwReducedTemp": {"min": 8.0, "max": 48.0, "value": 44.0, "step": 1.0},
+      "dhwEnabled": true,
+      "dhwMode": {
+        "value": 1,
+        "options": [
+          {"value": 0, "text": "Off"},
+          {"value": 1, "text": "On"}
+        ]
+      },
+      "flameSensor": false,
+      "heatPumpOn": false,
+      "dhwStorageTemp": 49.0,
+      "dhwStorageTempError": false,
+      "hasDhwStorageProbe": true,
+      "outsideTempError": false,
+      "isDhwProgReadOnly": false
+    },
+    "timeProgs": [],
+    "zoneData": {
+      "holidays": [],
+      "mode": {
+        "allowedOptions": [0, 1, 2, 3],
+        "allowedOptionTexts": ["Protection", "Automatic", "Reduced", "Comfort"],
+        "value": 1
+      },
+      "isHeatingActive": true,
+      "isCoolingActive": false,
+      "hasRoomSensor": false,
+      "chComfortTemp": {"min": 22.0, "max": 28.0, "value": 23.0, "step": 0.5},
+      "chReducedTemp": {"min": 10.0, "max": 23.0, "value": 22.0, "step": 0.5},
+      "coolComfortTemp": {"min": 0.0, "max": 0.0, "value": 0.0, "step": 0.0},
+      "coolReducedTemp": {"min": 0.0, "max": 0.0, "value": 0.0, "step": 0.0},
+      "roomTemp": 0.0,
+      "heatOrCoolRequest": true,
+      "chProtectionTemp": 10.0,
+      "coolProtectionTemp": 10.0,
+      "chHolidayTemp": 0.0,
+      "coolHolidayTemp": 0.0,
+      "desiredRoomTemp": 23.0,
+      "useReducedOperationModeOnHoliday": false,
+      "roomTempError": false
+    }
+  },
+  "system_items": {
+    "ChFlowTemp:0": {
+      "id": "ChFlowTemp",
+      "zone": 0,
+      "kind": 1,
+      "min": 0.0,
+      "max": 140.0,
+      "step": 0.1,
+      "value": 39.0,
+      "decimals": 1,
+      "readOnly": true,
+      "error": false,
+      "invalid": false
+    },
+    "IsHeatingPumpOn:0": {
+      "id": "IsHeatingPumpOn",
+      "zone": 0,
+      "kind": 3,
+      "min": 0.0,
+      "max": 0.0,
+      "step": 0.0,
+      "value": 0.0,
+      "decimals": 0,
+      "options": [0, 1],
+      "readOnly": true,
+      "error": false,
+      "invalid": false
+    }
+  },
+  "bus_errors": [],
+  "probe_status": {
+    "system_items": "available",
+    "bus_errors": "available",
+    "metering": "unsupported:feature"
+  }
+}

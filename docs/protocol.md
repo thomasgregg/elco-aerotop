@@ -41,6 +41,7 @@ The following calls expand model discovery without enabling any corresponding wr
 
 | Family | Method and path |
 |---|---|
+| Plant metadata | `GET /api/v2/remote/plants/lite` |
 | System data | `POST /api/v2/remote/dataItems/{gateway}/get?umsys=si` |
 | Time programs | `GET /api/v2/remote/timeProgs/{gateway}/{program}?umsys=si` |
 | Metering | `POST /R2/PlantMetering/GetData/{gateway}` |
@@ -48,10 +49,16 @@ The following calls expand model discovery without enabling any corresponding wr
 | Controller errors | `GET /api/v2/busErrors?gatewayId={gateway}&blockingOnly=False&culture=en-US` |
 | BSB parameters | `GET /R2/PlantMenuBsb/ReadDataPoints/{gateway}?addresses=...` |
 
-The BSB address list is a code-reviewed allowlist. Optional calls run independently from core
+BSB display line numbers such as 700 and 720 are not accepted as read addresses. The integration
+uses a code-reviewed allowlist of controller-internal datapoint IDs and keeps the display line in
+the Home Assistant entity name. Optional calls run independently from core
 polling, have their own time bound, and expose an availability status in diagnostics. A `404`,
 changed response shape, or other endpoint-specific failure must not disable normal plant/zone
 updates.
+
+The cloud maintenance endpoint and the controller's BSB `7000 – Message` group are different data
+sources. BSB maintenance-code entities require verified internal datapoint IDs; the integration
+does not infer them from the visible line number.
 
 ## Writing state
 

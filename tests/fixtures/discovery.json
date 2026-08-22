@@ -80,17 +80,17 @@
   },
   "bus_errors": [],
   "bsb_points": {
-    "700": {
-      "address": "700",
-      "textualValue": "Automatic"
+    "2950516": {
+      "address": "2950516",
+      "valueAsString": "Automatic"
     },
-    "710": {
-      "address": "710",
-      "value": 23.0
+    "2950544": {
+      "address": "2950544",
+      "valueAsNumber": 23.0
     },
-    "720": {
-      "address": "720",
-      "value": 0.8
+    "2950646": {
+      "address": "2950646",
+      "valueAsNumber": 0.8
     }
   },
   "probe_status": {

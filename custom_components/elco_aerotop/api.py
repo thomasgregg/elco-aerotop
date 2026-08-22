@@ -22,6 +22,7 @@ from .const import (
     LOGIN_PATH,
     MAINTENANCE_PATH,
     METERING_PATH,
+    PLANTS_LITE_PATH,
     REQUEST_TIMEOUT,
     SAVE_DHW_PATH,
     SET_DATA_PATH,
@@ -293,6 +294,25 @@ class ElcoApiClient:
                 zone_number = 0
             result[f"{item['id']}:{zone_number}"] = item
         return result
+
+    async def async_get_plant_metadata(self) -> dict[str, Any]:
+        """Fetch metadata, serial, and location from the native plant list."""
+        payload = await self._request_payload(
+            "GET",
+            PLANTS_LITE_PATH,
+            retry_auth=False,
+            invalidate_auth=False,
+        )
+        plants = payload.get("data", payload) if isinstance(payload, dict) else payload
+        if not isinstance(plants, list):
+            raise ElcoResponseError("Plant metadata returned an unexpected payload")
+        for plant in plants:
+            if not isinstance(plant, dict):
+                continue
+            identifiers = {str(plant.get(key, "")).upper() for key in ("gwId", "gwSerial")}
+            if self.gateway_id in identifiers:
+                return plant
+        raise ElcoResponseError("Configured gateway was not present in the plant list")
 
     async def async_get_schedule(self, program: str) -> Any:
         """Fetch one read-only weekly time program."""

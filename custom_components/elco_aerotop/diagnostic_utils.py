@@ -7,6 +7,9 @@ from typing import Any
 
 SENSITIVE_KEYS = {
     "address",
+    "addr",
+    "adm1name",
+    "adm2name",
     "city",
     "email",
     "gateway",
@@ -19,6 +22,7 @@ SENSITIVE_KEYS = {
     "nickname",
     "password",
     "postalcode",
+    "plantname",
     "serial",
     "technician",
     "username",
@@ -33,7 +37,7 @@ def _normalized_key(key: str) -> str:
 def _is_sensitive_key(key: str) -> bool:
     normalized = _normalized_key(key)
     return normalized in SENSITIVE_KEYS or any(
-        marker in normalized for marker in ("gatewayid", "serialnumber", "userid")
+        marker in normalized for marker in ("gatewayid", "serial", "userid")
     )
 
 

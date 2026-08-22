@@ -20,6 +20,7 @@ from .api import (
     ElcoAuthenticationError,
     ElcoConnectionError,
 )
+from .capabilities import supports_cooling
 from .const import DOMAIN
 from .models import ElcoData, ReadOnlyDiscovery
 
@@ -82,11 +83,7 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         status: dict[str, str] = {}
         schedules: dict[str, Any] = {}
         programs = [f"ChZn{zone}" for zone in self._zone_numbers]
-        has_cooling = bool(
-            self._features.get("hasTwoCoolingTemp")
-            or self._features.get("distinctHeatCoolSetpoints")
-            or any(zone.cooling_active for zone in data.zones.values())
-        )
+        has_cooling = any(supports_cooling(self._features, zone) for zone in data.zones.values())
         if has_cooling:
             programs.extend(f"CoolZn{zone}" for zone in self._zone_numbers)
         if self._features.get("dhwProgSupported", True) and not self._features.get(
@@ -94,34 +91,51 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         ):
             programs.append("Dhw")
 
-        requests: dict[str, Awaitable[Any]] = {
-            **{f"schedule:{program}": self.api.async_get_schedule(program) for program in programs},
-            "metering": self.api.async_get_metering(
-                self._features,
-                has_cooling=has_cooling,
-            ),
-            "maintenance": self.api.async_get_maintenance(),
-            "bus_errors": self.api.async_get_bus_errors(),
-            "bsb_points": self.api.async_get_bsb_points(),
-        }
-        names = list(requests)
-        results = await asyncio.gather(
-            *(self._async_optional_probe(name, requests[name], status) for name in names),
+        # Remocon forwards several of these reads to the controller bus. Keep them
+        # serialized: some gateways time out when schedule and BSB reads overlap.
+        plant_metadata = await self._async_optional_probe(
+            "plant_metadata",
+            self.api.async_get_plant_metadata(),
+            status,
         )
-        discovered = dict(zip(names, results, strict=True))
+        bsb_points = await self._async_optional_probe(
+            "bsb_points",
+            self.api.async_get_bsb_points(),
+            status,
+        )
         for program in programs:
-            schedule = discovered.get(f"schedule:{program}")
+            schedule = await self._async_optional_probe(
+                f"schedule:{program}",
+                self.api.async_get_schedule(program),
+                status,
+            )
             if schedule is not None:
                 schedules[program] = schedule
 
-        metering = discovered.get("metering")
-        maintenance = discovered.get("maintenance")
-        bus_errors = discovered.get("bus_errors")
-        bsb_points = discovered.get("bsb_points")
+        if self._features.get("hasMetering", False):
+            metering = await self._async_optional_probe(
+                "metering",
+                self.api.async_get_metering(self._features, has_cooling=has_cooling),
+                status,
+            )
+        else:
+            metering = None
+            status["metering"] = "unsupported:feature"
+        maintenance = await self._async_optional_probe(
+            "maintenance",
+            self.api.async_get_maintenance(),
+            status,
+        )
+        bus_errors = await self._async_optional_probe(
+            "bus_errors",
+            self.api.async_get_bus_errors(),
+            status,
+        )
 
         return ReadOnlyDiscovery(
             features=self._features,
             features_response=self.api.last_features_response,
+            plant_metadata=plant_metadata if isinstance(plant_metadata, dict) else {},
             schedules=schedules,
             metering=metering,
             maintenance=maintenance,
