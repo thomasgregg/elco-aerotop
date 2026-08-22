@@ -152,11 +152,11 @@ require the current value, limits, or allowed options needed to send a validated
 | Combustion health | `sensor.<device>_combustion_health` | Diagnostic | level | Combustion health level returned by Remocon. |
 | Other appliance health | `sensor.<device>_other_appliance_health` | Diagnostic | level | Catch-all appliance health level returned by Remocon. |
 | Predictive maintenance notice count | `sensor.<device>_predictive_maintenance_notice_count` | Diagnostic | — | Number of active structured predictive-maintenance notices. Notice payloads remain in redacted diagnostics. |
-| Annual energy record `<slot>` date | `sensor.<device>_annual_energy_record_<slot>_date` | Diagnostic | date | Controller fixed date for annual history slot 1–10. |
-| Annual performance factor `<slot>` | `sensor.<device>_annual_performance_factor_<slot>` | Diagnostic | — | Yearly performance factor for history slot 1–10. |
-| Annual heat delivered heating/DHW `<slot>` | `sensor.<device>_annual_heat_delivered_<type>_<slot>` | Diagnostic | kWh | Delivered heating or DHW energy for history slot 1–10. |
-| Annual refrigeration delivered `<slot>` | `sensor.<device>_annual_refrigeration_delivered_<slot>` | Diagnostic | kWh | Delivered cooling energy for history slot 1–10. |
-| Annual energy input heating/DHW/cooling `<slot>` | `sensor.<device>_annual_energy_input_<type>_<slot>` | Diagnostic | kWh | Electrical input energy for history slot 1–10. |
+| Fixed day `<slot>` | `sensor.<device>_annual_energy_record_<slot>_date` | Diagnostic | date | Controller fixed date associated with energy-history slot 1–10. |
+| Yearly perf factor `<slot>` | `sensor.<device>_annual_performance_factor_<slot>` | Diagnostic | — | ELCO yearly performance factor for history slot 1–10. |
+| Heat delivered heating/DHW `<slot>` | `sensor.<device>_annual_heat_delivered_<type>_<slot>` | Diagnostic | kWh | Delivered heating or DHW energy for history slot 1–10. |
+| Refrigeration delivered `<slot>` | `sensor.<device>_annual_refrigeration_delivered_<slot>` | Diagnostic | kWh | Delivered cooling energy for history slot 1–10. |
+| Energy brought in heating/DHW/cooling `<slot>` | `sensor.<device>_annual_energy_input_<type>_<slot>` | Diagnostic | kWh | Electrical energy brought in for history slot 1–10. |
 
 Temperature sensors use Home Assistant's `temperature` device class and `measurement` state class.
 The read-only zone-mode sensor and low-level BSB 700/710/712/714/720/730 sensors are diagnostic

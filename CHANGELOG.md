@@ -2,6 +2,14 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.2.20
+
+- Align all energy-history display names with the authenticated ELCO Remocon Energy meter page:
+  **Fixed day**, **Yearly perf factor**, **Heat delivered**, **Refrigeration delivered**, and
+  **Energy brought in**.
+- Preserve existing entity IDs and unique IDs so the naming correction does not break entity
+  history, dashboards, or automations.
+
 ## 0.2.19
 
 - Add model-conditional sensors for BSB diagnostics lines **8786 – Flow temp cooling 2** and

@@ -531,9 +531,9 @@ async def async_setup_entry(
         ("heat_delivered_heating", "Heat delivered heating"),
         ("heat_delivered_dhw", "Heat delivered DHW"),
         ("refrigeration_delivered", "Refrigeration delivered"),
-        ("energy_input_heating", "Energy input heating"),
-        ("energy_input_dhw", "Energy input DHW"),
-        ("energy_input_cooling", "Energy input cooling"),
+        ("energy_input_heating", "Energy brought in heating"),
+        ("energy_input_dhw", "Energy brought in DHW"),
+        ("energy_input_cooling", "Energy brought in cooling"),
     )
     for slot, addresses in BSB_ENERGY_HISTORY_ADDRESSES.items():
         enabled = slot == 1
@@ -542,7 +542,7 @@ async def async_setup_entry(
             ElcoSensor(
                 coordinator,
                 f"annual_energy_record_{slot}_date",
-                f"Annual energy record {slot} date",
+                f"Fixed day {slot}",
                 lambda state, bsb_address=date_address: bsb_point_date(
                     state.discovery.bsb_points.get(bsb_address)
                 ),
@@ -559,7 +559,7 @@ async def async_setup_entry(
             ElcoSensor(
                 coordinator,
                 f"annual_performance_factor_{slot}",
-                f"Annual performance factor {slot}",
+                f"Yearly perf factor {slot}",
                 lambda state, bsb_address=factor_address: _as_number(
                     _bsb_value(state, bsb_address)
                 ),
@@ -577,7 +577,7 @@ async def async_setup_entry(
                 ElcoSensor(
                     coordinator,
                     f"annual_{field}_{slot}",
-                    f"Annual {label.lower()} {slot}",
+                    f"{label} {slot}",
                     lambda state, bsb_address=address: _as_number(_bsb_value(state, bsb_address)),
                     energy=True,
                     entity_category=EntityCategory.DIAGNOSTIC,
