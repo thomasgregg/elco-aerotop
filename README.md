@@ -133,11 +133,12 @@ workflow, see [Gateway discovery and anonymized fixtures](docs/discovery.md).
 
 ## Installation
 
-### Option 1: HACS custom repository (recommended)
+### Option 1: HACS (recommended)
 
 [![Open your Home Assistant instance and add this repository to HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=thomasgregg&repository=elco-aerotop&category=integration)
 
-HACS must already be installed and configured in Home Assistant.
+HACS must already be installed and configured in Home Assistant. Until the default-store listing
+is approved, use the button above or add this repository as a custom repository:
 
 1. Open **HACS** in Home Assistant.
 2. Open the three-dot menu in the upper-right corner and choose **Custom repositories**.
@@ -148,7 +149,8 @@ HACS must already be installed and configured in Home Assistant.
    ```
 
 4. Select **Integration** as the category and choose **Add**.
-5. Search HACS for **ELCO Aerotop** and choose **Download**.
+5. Search HACS for **ELCO Aerotop** and choose **Download**. After the default-store listing is
+   approved, new users can start directly with this step.
 6. Restart Home Assistant when HACS asks you to do so.
 7. Continue with [Home Assistant setup](#home-assistant-setup).
 

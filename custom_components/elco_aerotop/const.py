@@ -10,7 +10,7 @@ DEFAULT_BASE_URL: Final = "https://www.remocon-net.remotethermo.com"
 DEFAULT_SCAN_INTERVAL: Final = 3600
 MIN_SCAN_INTERVAL: Final = 60
 REQUEST_TIMEOUT: Final = 70
-USER_AGENT: Final = "ELCO-Aerotop-Home-Assistant/0.3.5"
+USER_AGENT: Final = "ELCO-Aerotop-Home-Assistant/0.3.6"
 
 CONF_BASE_URL: Final = "base_url"
 CONF_GATEWAY_ID: Final = "gateway_id"

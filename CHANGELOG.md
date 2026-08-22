@@ -4,6 +4,11 @@ All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
 ## Unreleased
 
+## 0.3.6
+
+- Prepare the validated release required for submission to the default HACS store and clarify that
+  the custom-repository installation path remains available while the listing is under review.
+
 ## 0.3.5
 
 - Group every fixed day, yearly performance factor, and annual energy value under a consistent
