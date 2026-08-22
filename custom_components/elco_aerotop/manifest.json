@@ -9,5 +9,5 @@
   "issue_tracker": "https://github.com/thomasgregg/elco-aerotop/issues",
   "loggers": ["custom_components.elco_aerotop"],
   "requirements": [],
-  "version": "0.2.14"
+  "version": "0.2.15"
 }

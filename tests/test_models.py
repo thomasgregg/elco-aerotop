@@ -208,15 +208,9 @@ def test_bsb_maintenance_message_fields_are_read_by_name_with_index_fallback() -
         ],
     }
 
-    assert (
-        bsb_point_field_value(point, "Maintenance code 1", 0)
-        == "0:No maintenance required"
-    )
+    assert bsb_point_field_value(point, "Maintenance code 1", 0) == "0:No maintenance required"
     assert bsb_point_field_value(point, "Maintenance priority 1", 1) == 0
-    assert (
-        bsb_point_field_value(point, "Maintenance code 2", 2)
-        == "0:No maintenance required"
-    )
+    assert bsb_point_field_value(point, "Maintenance code 2", 2) == "0:No maintenance required"
     assert bsb_point_field_value(point, "Maintenance priority 2", 3) == 0
 
 

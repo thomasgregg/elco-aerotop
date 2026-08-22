@@ -2,6 +2,11 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.2.15
+
+- Supersede 0.2.14 with the same BSB line 7000 maintenance support and a formatting-only test-file
+  correction required by the repository validation workflow.
+
 ## 0.2.14
 
 - Add four read-only diagnostic sensors for BSB line **7000 – Message**: maintenance code 1,
