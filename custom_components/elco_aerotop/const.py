@@ -10,7 +10,7 @@ DEFAULT_BASE_URL: Final = "https://www.remocon-net.remotethermo.com"
 DEFAULT_SCAN_INTERVAL: Final = 300
 MIN_SCAN_INTERVAL: Final = 60
 REQUEST_TIMEOUT: Final = 30
-USER_AGENT: Final = "ELCO-Aerotop-Home-Assistant/0.2.16"
+USER_AGENT: Final = "ELCO-Aerotop-Home-Assistant/0.2.17"
 
 CONF_BASE_URL: Final = "base_url"
 CONF_GATEWAY_ID: Final = "gateway_id"
@@ -126,17 +126,25 @@ BSB_DISCOVERY_GROUPS: Final = {
         "5838456",
         "5838457",
     ),
-    "energy_history": BSB_ENERGY_HISTORY_ADDRESS_LIST,
     # Verified safe reads retained in diagnostics. Values already represented
     # by a primary control (holiday level) or one-shot reset actions (schedule
     # defaults) intentionally do not create duplicate entities.
-    "other_settings": (
+    "other_settings_clock": (
         "327691",  # Time of day and date > Clock time
+    ),
+    "other_settings_defaults": (
         "329138",  # Heating/cooling program 1 > 516 Default values
         "460210",  # Program 3/HC3 > 556 Default values
         "329139",  # Program 4/DHW > 576 Default values
         "2950338",  # Holidays heating/cooling 1 > 648 Operating level
     ),
+    # One controller-bus request per annual slot is deliberate. A live gateway
+    # returned "Communication error" for one 80-address request even though the
+    # same points are readable in smaller structured JSON batches.
+    **{
+        f"energy_history_{slot}": tuple(addresses.values())
+        for slot, addresses in BSB_ENERGY_HISTORY_ADDRESSES.items()
+    },
 }
 GLOBAL_DATA_ITEM_IDS: Final = (
     "HeatingCircuitPressure",

@@ -79,7 +79,7 @@ program, and 9–14 for cooling zones. Heating/cooling requests select the match
 selects the plant block. The similarly named mobile `timeProgs` route is not used for BSB plants.
 
 Annual energy history is also a BSB menu family, not the cloud metering response. Ten verified
-fixed-date slots are read as one isolated 80-address request. Each slot has a record date, yearly
+fixed-date slots are read as ten isolated eight-address requests. Each slot has a record date, yearly
 performance factor, delivered heating/DHW/cooling energy, and input heating/DHW/cooling energy.
 This read remains applicable when `Features.hasMetering` is false.
 

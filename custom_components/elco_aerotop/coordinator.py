@@ -193,6 +193,8 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
             bsb_points: dict[str, Any] = {}
             available_bsb_groups = 0
             for group_name, addresses in BSB_DISCOVERY_GROUPS.items():
+                if group_name.startswith("energy_history_"):
+                    continue
                 group = await self._async_optional_probe(
                     f"bsb_points:{group_name}",
                     self.api.async_get_bsb_points(addresses),
@@ -202,12 +204,6 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
                 if isinstance(group, dict):
                     bsb_points.update(group)
                     available_bsb_groups += 1
-            if available_bsb_groups == len(BSB_DISCOVERY_GROUPS):
-                status["bsb_points"] = "available"
-            elif available_bsb_groups:
-                status["bsb_points"] = "partially_available"
-            else:
-                status["bsb_points"] = "unavailable"
 
             # Remocon forwards several of these reads to the controller bus. Keep
             # every BSB and schedule request serialized to avoid gateway contention.
@@ -272,6 +268,30 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
                     status["menu_items"] = "partially_available"
                 else:
                     status["menu_items"] = "unavailable"
+
+            # Annual history is intentionally last. Some controllers reject an
+            # oversized energy request slowly; this ordering prevents that
+            # optional family from delaying schedules, maintenance, or native
+            # BSB plant data. Each eight-address slot is isolated as well.
+            for group_name, addresses in BSB_DISCOVERY_GROUPS.items():
+                if not group_name.startswith("energy_history_"):
+                    continue
+                group = await self._async_optional_probe(
+                    f"bsb_points:{group_name}",
+                    self.api.async_get_bsb_points(addresses),
+                    status,
+                    timeout_seconds=_BSB_PROBE_TIMEOUT,
+                )
+                if isinstance(group, dict):
+                    bsb_points.update(group)
+                    available_bsb_groups += 1
+
+            if available_bsb_groups == len(BSB_DISCOVERY_GROUPS):
+                status["bsb_points"] = "available"
+            elif available_bsb_groups:
+                status["bsb_points"] = "partially_available"
+            else:
+                status["bsb_points"] = "unavailable"
 
             self._slow_discovery = replace(
                 base,

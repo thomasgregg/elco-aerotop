@@ -2,6 +2,15 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.2.17
+
+- Split annual BSB energy history into ten independent eight-address reads after live v0.2.16
+  validation proved that one 80-address request is rejected with a controller communication error.
+- Read schedules, maintenance, monitoring, and native BSB plant data before annual history so an
+  optional slow energy slot cannot suppress otherwise supported discovery families.
+- Isolate the compound clock value from the schedule-default/holiday values for more precise
+  capability diagnostics.
+
 ## 0.2.16
 
 - Replace the non-responsive mobile schedule route with Remocon's verified BSB-native

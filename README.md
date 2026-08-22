@@ -287,8 +287,8 @@ repeatedly sending requests that cannot succeed.
 Remocon advertises a separate metering capability, but some BSB Aerotop controllers expose annual
 energy history even when `Features.hasMetering` is false. The integration therefore reads the ten
 verified BSB annual records independently of the cloud metering feature flag. The 80 internal
-addresses were captured from structured BSB menu metadata and are queried in one isolated,
-read-only JSON group.
+addresses were captured from structured BSB menu metadata and are queried as ten isolated,
+read-only JSON slot groups so one controller-bus failure cannot hide the other annual records.
 
 ## Installation
 

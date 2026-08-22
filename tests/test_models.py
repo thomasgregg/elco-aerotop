@@ -288,4 +288,12 @@ def test_energy_history_addresses_match_verified_controller_families() -> None:
     }
     assert BSB_ENERGY_HISTORY_ADDRESSES[10]["record_date"] == "333490"
     assert BSB_ENERGY_HISTORY_ADDRESSES[10]["energy_input_cooling"] == "334210"
-    assert len(BSB_DISCOVERY_GROUPS["energy_history"]) == 80
+    assert len(BSB_DISCOVERY_GROUPS["energy_history_1"]) == 8
+    assert len(BSB_DISCOVERY_GROUPS["energy_history_10"]) == 8
+    energy_addresses = {
+        address
+        for group, addresses in BSB_DISCOVERY_GROUPS.items()
+        if group.startswith("energy_history_")
+        for address in addresses
+    }
+    assert len(energy_addresses) == 80
