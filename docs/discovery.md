@@ -14,8 +14,9 @@ Home Assistant diagnostics contain:
 - requested read-only system-data items;
 - supported heating, cooling, and domestic-hot-water programs;
 - metering, maintenance, and controller-error responses;
-- values returned for allowlisted heating-circuit and Aerotop BSB datapoints;
-- a probe-status map showing `available` or an unavailable error class; and
+- values returned for allowlisted heating-circuit and Aerotop BSB datapoints, queried in isolated
+  JSON API groups;
+- a probe-status map showing `available`, `partially_available`, or an unavailable error class; and
 - a `response_schema` inventory of every observed JSON path and Python value type.
 
 The diagnostics implementation recursively redacts configured credentials and gateway IDs,
@@ -44,3 +45,7 @@ Discovery does not authorize writes. A new writable field requires a separately 
 contract, an anonymized read/write fixture, validation against gateway-provided limits/options,
 and a real-controller test proving that a fresh read retains the command. Arbitrary BSB writes are
 out of scope.
+
+Rendered Remocon pages are never used as an entity data source. The login handshake reads the
+anti-forgery token required by Remocon, after which plant discovery, state polling, and commands use
+JSON endpoints.

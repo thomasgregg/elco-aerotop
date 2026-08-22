@@ -191,21 +191,24 @@ probes these non-mutating endpoint families:
 | Metering | The complete metering response, without assuming one firmware-specific schema | Approximately hourly |
 | Maintenance | Cloud maintenance response when the account is authorized for it | Approximately hourly |
 | Controller errors | Read-only bus-error response | Approximately hourly |
-| BSB | Allowlisted heating-circuit and Aerotop temperature/pressure datapoints | Approximately hourly |
+| BSB | Allowlisted heating-circuit and Aerotop temperature/pressure datapoints, read in independent JSON API groups | Approximately hourly |
 
-Each optional family has an independent 15-second timeout and availability result. A missing,
-unsupported, or changed optional endpoint is recorded in diagnostics but does not make the core
-plant and zone entities unavailable. These raw discovery responses are not exposed wholesale as
-entity attributes, which avoids oversized Home Assistant states and accidental identifier leaks.
+Each optional family has an independent availability result. Most probes use a 15-second timeout;
+controller-backed BSB groups use 30 seconds. A missing, unsupported, or changed optional endpoint
+is recorded in diagnostics but does not make the core plant and zone entities unavailable. BSB
+groups are isolated so one rejected group cannot discard values from supported groups. These raw
+discovery responses are not exposed wholesale as entity attributes, which avoids oversized Home
+Assistant states and accidental identifier leaks.
 
 Discovery is strictly read-only. It does not add generic BSB writing, schedule editing,
 maintenance actions, or metering commands. See [`docs/discovery.md`](docs/discovery.md) for the
 capture and fixture workflow.
 
 The earlier add-on's “maintenance code” values came from the BSB **7000 – Message** menu, not from
-the Remocon maintenance API. Their controller-internal addresses have not yet been verified, so
-they are not guessed or exposed as entities. Current controller faults are covered independently
-by the native bus-error entities above.
+the Remocon maintenance API. The add-on obtained them by scraping the rendered website. This
+integration will not do that. Their controller-internal JSON API addresses have not yet been
+verified, so they are not guessed or exposed as entities. Current controller faults are covered
+independently by the native bus-error entities above.
 
 ## Installation
 

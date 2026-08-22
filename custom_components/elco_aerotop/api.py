@@ -358,13 +358,17 @@ class ElcoApiClient:
             invalidate_auth=False,
         )
 
-    async def async_get_bsb_points(self) -> dict[str, Any]:
+    async def async_get_bsb_points(
+        self,
+        addresses: tuple[str, ...] | None = None,
+    ) -> dict[str, Any]:
         """Fetch the allowlisted read-only BSB parameters."""
+        requested_addresses = addresses or BSB_DISCOVERY_ADDRESSES
         payload = await self._request_payload(
             "GET",
             BSB_READ_PATH.format(
                 gateway_id=self.gateway_id,
-                addresses=",".join(BSB_DISCOVERY_ADDRESSES),
+                addresses=",".join(requested_addresses),
             ),
             retry_auth=False,
             invalidate_auth=False,

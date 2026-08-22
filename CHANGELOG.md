@@ -2,6 +2,13 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.2.5
+
+- Split read-only BSB discovery into independent heating-circuit, plant, and heat-pump JSON API
+  requests. A controller rejecting one address group no longer hides values returned by another.
+- Report per-group BSB availability in diagnostics and retain a combined `bsb_points` status.
+- Confirm that discovery and entities remain JSON API based; no rendered device pages are scraped.
+
 ## 0.2.4
 
 - Explicitly clear the legacy device-registry `configuration_url`, removing the **Visit** button

@@ -21,7 +21,7 @@ from .api import (
     ElcoConnectionError,
 )
 from .capabilities import supports_cooling
-from .const import DOMAIN
+from .const import BSB_DISCOVERY_GROUPS, DOMAIN
 from .models import ElcoData, ReadOnlyDiscovery
 
 _LOGGER = logging.getLogger(__name__)
@@ -101,12 +101,24 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
             self.api.async_get_plant_metadata(),
             status,
         )
-        bsb_points = await self._async_optional_probe(
-            "bsb_points",
-            self.api.async_get_bsb_points(),
-            status,
-            timeout_seconds=_BSB_PROBE_TIMEOUT,
-        )
+        bsb_points: dict[str, Any] = {}
+        available_bsb_groups = 0
+        for group_name, addresses in BSB_DISCOVERY_GROUPS.items():
+            group = await self._async_optional_probe(
+                f"bsb_points:{group_name}",
+                self.api.async_get_bsb_points(addresses),
+                status,
+                timeout_seconds=_BSB_PROBE_TIMEOUT,
+            )
+            if isinstance(group, dict):
+                bsb_points.update(group)
+                available_bsb_groups += 1
+        if available_bsb_groups == len(BSB_DISCOVERY_GROUPS):
+            status["bsb_points"] = "available"
+        elif available_bsb_groups:
+            status["bsb_points"] = "partially_available"
+        else:
+            status["bsb_points"] = "unavailable"
         for program in programs:
             schedule = await self._async_optional_probe(
                 f"schedule:{program}",
@@ -144,7 +156,7 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
             metering=metering,
             maintenance=maintenance,
             bus_errors=bus_errors,
-            bsb_points=bsb_points if isinstance(bsb_points, dict) else {},
+            bsb_points=bsb_points,
             probe_status=status,
         )
 

@@ -111,14 +111,14 @@ async def test_login_uses_antiforgery_cookie_and_json_credentials() -> None:
     await client.async_login()
 
     assert session.cookie_jar.cookies["__formRequestVerificationToken"] == "token-123"
-    assert session.calls[0][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.4")
+    assert session.calls[0][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.5")
     assert session.calls[1][2]["json"] == {
         "email": "user@example.com",
         "password": "secret",
         "rememberMe": False,
         "language": "English_Gb",
     }
-    assert session.calls[1][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.4")
+    assert session.calls[1][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.5")
     assert session.calls[0][2]["timeout"].total == 30
 
 
@@ -210,6 +210,28 @@ async def test_read_only_endpoint_families_accept_their_payload_shapes() -> None
     assert "addresses=2950516,2950544,2950565,2950546" in session.calls[-1][1]
     assert "340067" in session.calls[-1][1]
     assert "5834029" in session.calls[-1][1]
+
+
+@pytest.mark.asyncio
+async def test_bsb_read_accepts_an_isolated_address_group() -> None:
+    session = FakeSession(
+        [
+            *login_responses(),
+            FakeResponse(
+                json_data={
+                    "ok": True,
+                    "data": [{"address": "2950516", "textualValue": "Automatic"}],
+                }
+            ),
+        ]
+    )
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+
+    points = await client.async_get_bsb_points(("2950516", "2950544"))
+
+    assert points["2950516"]["textualValue"] == "Automatic"
+    assert "addresses=2950516,2950544" in session.calls[-1][1]
+    assert "5834029" not in session.calls[-1][1]
 
 
 @pytest.mark.asyncio
