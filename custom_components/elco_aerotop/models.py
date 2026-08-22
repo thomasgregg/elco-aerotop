@@ -39,6 +39,40 @@ def _boolean(value: Any) -> bool | None:
     return None
 
 
+def bsb_point_value(point: Any) -> Any:
+    """Return a BSB value, translating a numeric enum to its server label."""
+    if not isinstance(point, dict):
+        return None
+
+    for key in ("valueAsString", "textualValue", "text"):
+        if point.get(key) not in (None, ""):
+            return point[key]
+
+    numeric_value = point.get("valueAsNumber")
+    options = point.get("enumOptions")
+    if numeric_value is not None and isinstance(options, list):
+        for option in options:
+            if isinstance(option, dict) and option.get("value") == numeric_value:
+                return option.get("text", numeric_value)
+
+    value = point.get("value", numeric_value)
+    if isinstance(value, dict):
+        return value.get("value", value.get("text"))
+    return value
+
+
+def bsb_point_available(point: Any) -> bool:
+    """Return whether Remocon reports a usable BSB datapoint."""
+    if not isinstance(point, dict):
+        return False
+    if any(point.get(flag) is True for flag in ("osv", "anyError", "deviceFailure")):
+        return False
+    for error_code in ("bsbErrorCode", "commErrorCode"):
+        if point.get(error_code) not in (None, 0, "0"):
+            return False
+    return bsb_point_value(point) is not None
+
+
 @dataclass(frozen=True, slots=True)
 class Option:
     """A selectable numeric Remocon option."""

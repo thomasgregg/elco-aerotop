@@ -6,6 +6,8 @@ from custom_components.elco_aerotop.models import (
     PlantState,
     ReadOnlyDiscovery,
     ZoneState,
+    bsb_point_available,
+    bsb_point_value,
 )
 
 
@@ -135,3 +137,34 @@ def test_capability_checks_accept_real_cooling_values() -> None:
     zone = ZoneState.parse(1, {"coolComfortTemp": {"value": 24}})
 
     assert supports_cooling({}, zone) is True
+
+
+def test_bsb_enum_value_uses_server_label() -> None:
+    point = {
+        "valueAsNumber": 1.0,
+        "enumOptions": [
+            {"value": 0, "text": "Protection"},
+            {"value": 1, "text": "Automatic"},
+        ],
+        "osv": False,
+        "anyError": False,
+        "deviceFailure": False,
+        "bsbErrorCode": 0,
+        "commErrorCode": 0,
+    }
+
+    assert bsb_point_available(point) is True
+    assert bsb_point_value(point) == "Automatic"
+
+
+def test_bsb_out_of_service_value_is_unavailable() -> None:
+    point = {
+        "valueAsNumber": 0.0,
+        "osv": True,
+        "anyError": False,
+        "deviceFailure": False,
+        "bsbErrorCode": 0,
+        "commErrorCode": 0,
+    }
+
+    assert bsb_point_available(point) is False

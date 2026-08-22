@@ -200,6 +200,10 @@ groups are isolated so one rejected group cannot discard values from supported g
 discovery responses are not exposed wholesale as entity attributes, which avoids oversized Home
 Assistant states and accidental identifier leaks.
 
+BSB datapoints flagged by Remocon as out of service, failed, or carrying a bus/communication error
+are not exposed as entities. Enum datapoints use the labels supplied by Remocon instead of raw
+numeric codes.
+
 Discovery is strictly read-only. It does not add generic BSB writing, schedule editing,
 maintenance actions, or metering commands. See [`docs/discovery.md`](docs/discovery.md) for the
 capture and fixture workflow.

@@ -2,6 +2,15 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.2.6
+
+- Treat BSB datapoints marked `osv` (out of service), failed, or carrying a bus/communication
+  error as unavailable instead of exposing their placeholder zero as an entity.
+- Render BSB enum values using the labels returned by Remocon, such as `Automatic`, rather than
+  their numeric codes.
+- Isolate the three plant BSB addresses individually after v0.2.5 diagnostics showed that the
+  gateway rejects their combined request.
+
 ## 0.2.5
 
 - Split read-only BSB discovery into independent heating-circuit, plant, and heat-pump JSON API

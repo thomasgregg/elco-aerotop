@@ -15,7 +15,7 @@ from .capabilities import supports_cooling, supports_room_sensor
 from .const import BSB_ENTITY_ADDRESSES
 from .coordinator import ElcoDataUpdateCoordinator
 from .entity import ElcoAerotopEntity
-from .models import ElcoData, NumericVariable
+from .models import ElcoData, NumericVariable, bsb_point_available, bsb_point_value
 
 
 class ElcoSensor(ElcoAerotopEntity, SensorEntity):
@@ -65,26 +65,7 @@ def _as_number(value: Any) -> float | None:
 
 
 def _bsb_value(data: ElcoData, address: str) -> Any:
-    point = data.discovery.bsb_points.get(address)
-    if not isinstance(point, dict):
-        return None
-    value = next(
-        (
-            point[key]
-            for key in (
-                "value",
-                "valueAsNumber",
-                "valueAsString",
-                "textualValue",
-                "text",
-            )
-            if point.get(key) is not None
-        ),
-        None,
-    )
-    if isinstance(value, dict):
-        return value.get("value", value.get("text"))
-    return value
+    return bsb_point_value(data.discovery.bsb_points.get(address))
 
 
 def _has_system_item(data: ElcoData, item_id: str, zone: int = 0) -> bool:
@@ -101,9 +82,7 @@ def _has_system_item(data: ElcoData, item_id: str, zone: int = 0) -> bool:
 
 def _has_bsb_value(data: ElcoData, address: str, *, numeric: bool) -> bool:
     point = data.discovery.bsb_points.get(address)
-    if not isinstance(point, dict):
-        return False
-    if point.get("ok", True) is False or point.get("isAvailable", True) is False:
+    if not bsb_point_available(point):
         return False
     value = _bsb_value(data, address)
     return _as_number(value) is not None if numeric else value is not None

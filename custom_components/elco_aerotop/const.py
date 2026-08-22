@@ -10,7 +10,7 @@ DEFAULT_BASE_URL: Final = "https://www.remocon-net.remotethermo.com"
 DEFAULT_SCAN_INTERVAL: Final = 300
 MIN_SCAN_INTERVAL: Final = 60
 REQUEST_TIMEOUT: Final = 30
-USER_AGENT: Final = "ELCO-Aerotop-Home-Assistant/0.2.5"
+USER_AGENT: Final = "ELCO-Aerotop-Home-Assistant/0.2.6"
 
 CONF_BASE_URL: Final = "base_url"
 CONF_GATEWAY_ID: Final = "gateway_id"
@@ -59,11 +59,9 @@ BSB_DISCOVERY_GROUPS: Final = {
     "heating_circuit": tuple(
         BSB_ENTITY_ADDRESSES[key] for key in ("700", "710", "712", "714", "720", "730")
     ),
-    "plant": (
-        BSB_ENTITY_ADDRESSES["heating_circuit_pressure"],
-        "2950542",
-        "328993",
-    ),
+    "plant_pressure": (BSB_ENTITY_ADDRESSES["heating_circuit_pressure"],),
+    "plant_auxiliary_2950542": ("2950542",),
+    "plant_auxiliary_328993": ("328993",),
     "heat_pump": (
         BSB_ENTITY_ADDRESSES["heat_pump_flow_temperature"],
         BSB_ENTITY_ADDRESSES["heat_pump_return_temperature"],
