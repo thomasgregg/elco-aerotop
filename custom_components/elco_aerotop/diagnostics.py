@@ -10,6 +10,7 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 
 from .const import CONF_GATEWAY_ID
+from .diagnostic_utils import sanitize_diagnostics, schema_inventory
 
 
 async def async_get_config_entry_diagnostics(
@@ -18,10 +19,17 @@ async def async_get_config_entry_diagnostics(
 ) -> dict:
     """Return redacted diagnostics."""
     coordinator = entry.runtime_data
+    raw_data = asdict(coordinator.data)
+    secrets = {
+        str(entry.data.get(CONF_USERNAME, "")),
+        str(entry.data.get(CONF_PASSWORD, "")),
+        str(entry.data.get(CONF_GATEWAY_ID, "")),
+    }
     return {
         "config": async_redact_data(
             entry.data,
             {CONF_USERNAME, CONF_PASSWORD, CONF_GATEWAY_ID},
         ),
-        "data": asdict(coordinator.data),
+        "response_schema": schema_inventory(raw_data, secrets),
+        "data": sanitize_diagnostics(raw_data, secrets),
     }

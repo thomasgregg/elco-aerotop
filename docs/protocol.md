@@ -32,6 +32,27 @@ POST /R2/PlantHomeBsb/GetData/{gateway}
 The request selects a zone and independently requests the plant and zone blocks. A write always
 starts by reading uncached state.
 
+The integration retains the full `Features` response and every per-zone `GetData` response for
+schema inventory in redacted Home Assistant diagnostics. It does not log these payloads.
+
+## Optional read-only discovery
+
+The following calls expand model discovery without enabling any corresponding write operation:
+
+| Family | Method and path |
+|---|---|
+| System data | `POST /api/v2/remote/dataItems/{gateway}/get?umsys=si` |
+| Time programs | `GET /api/v2/remote/timeProgs/{gateway}/{program}?umsys=si` |
+| Metering | `POST /R2/PlantMetering/GetData/{gateway}` |
+| Maintenance | `GET /R2/PlantData/GetMaintenanceData?id={gateway}` |
+| Controller errors | `GET /api/v2/busErrors?gatewayId={gateway}&blockingOnly=False&culture=en-US` |
+| BSB parameters | `GET /R2/PlantMenuBsb/ReadDataPoints/{gateway}?addresses=...` |
+
+The BSB address list is a code-reviewed allowlist. Optional calls run independently from core
+polling, have their own time bound, and expose an availability status in diagnostics. A `404`,
+changed response shape, or other endpoint-specific failure must not disable normal plant/zone
+updates.
+
 ## Writing state
 
 Heating comfort and reduced setpoints are an atomic pair:

@@ -137,7 +137,13 @@ class PlantState:
     raw: dict[str, Any]
     outside_temperature: float | None
     heat_pump_on: bool | None
+    flame_on: bool | None
+    dhw_enabled: bool | None
     dhw_current_temperature: float | None
+    outside_temperature_error: bool | None
+    dhw_temperature_error: bool | None
+    has_outside_temperature_probe: bool | None
+    has_dhw_temperature_probe: bool | None
     dhw_comfort_temperature: NumericVariable
     dhw_reduced_temperature: NumericVariable
     dhw_mode: SelectVariable
@@ -147,8 +153,14 @@ class PlantState:
         return cls(
             raw=raw,
             outside_temperature=_number(_first(raw, "outsideTemp", "outTemp")),
-            heat_pump_on=_boolean(_first(raw, "heatPumpOn", "hpOn", "flameSensor", "flame")),
+            heat_pump_on=_boolean(_first(raw, "heatPumpOn", "hpOn")),
+            flame_on=_boolean(_first(raw, "flameSensor", "flame")),
+            dhw_enabled=_boolean(raw.get("dhwEnabled")),
             dhw_current_temperature=_number(_first(raw, "dhwStorageTemp", "dhwTemp")),
+            outside_temperature_error=_boolean(raw.get("outsideTempError")),
+            dhw_temperature_error=_boolean(raw.get("dhwStorageTempError")),
+            has_outside_temperature_probe=_boolean(raw.get("hasOutsideTempProbe")),
+            has_dhw_temperature_probe=_boolean(raw.get("hasDhwStorageProbe")),
             dhw_comfort_temperature=NumericVariable.parse(
                 _first(raw, "dhwComfortTemp", "dhwComfTemp", default={})
             ),
@@ -168,8 +180,17 @@ class ZoneState:
     mode: SelectVariable
     comfort_temperature: NumericVariable
     reduced_temperature: NumericVariable
+    cooling_comfort_temperature: NumericVariable
+    cooling_reduced_temperature: NumericVariable
+    heating_protection_temperature: float | None
+    cooling_protection_temperature: float | None
+    heating_holiday_temperature: float | None
+    cooling_holiday_temperature: float | None
     desired_temperature: float | None
     room_temperature: float | None
+    room_temperature_error: bool | None
+    has_room_sensor: bool | None
+    use_reduced_operation_mode_on_holiday: bool | None
     heating_active: bool | None
     cooling_active: bool | None
     heat_or_cool_request: bool | None
@@ -186,12 +207,51 @@ class ZoneState:
             reduced_temperature=NumericVariable.parse(
                 _first(raw, "chReducedTemp", "chRedTemp", default={})
             ),
+            cooling_comfort_temperature=NumericVariable.parse(
+                _first(raw, "coolComfortTemp", "coolComfTemp", default={})
+            ),
+            cooling_reduced_temperature=NumericVariable.parse(
+                _first(raw, "coolReducedTemp", "coolRedTemp", default={})
+            ),
+            heating_protection_temperature=_number(raw.get("chProtectionTemp")),
+            cooling_protection_temperature=_number(raw.get("coolProtectionTemp")),
+            heating_holiday_temperature=_number(raw.get("chHolidayTemp")),
+            cooling_holiday_temperature=_number(raw.get("coolHolidayTemp")),
             desired_temperature=_number(raw.get("desiredRoomTemp")),
             room_temperature=_number(raw.get("roomTemp")),
+            room_temperature_error=_boolean(raw.get("roomTempError")),
+            has_room_sensor=_boolean(raw.get("hasRoomSensor")),
+            use_reduced_operation_mode_on_holiday=_boolean(
+                raw.get("useReducedOperationModeOnHoliday")
+            ),
             heating_active=_boolean(_first(raw, "isHeatingActive", "heatingOn")),
             cooling_active=_boolean(_first(raw, "isCoolingActive", "coolingOn")),
             heat_or_cool_request=_boolean(_first(raw, "heatOrCoolRequest", "heatOrCoolReq")),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class ReadOnlyDiscovery:
+    """Optional read-only endpoint data and availability results."""
+
+    features: dict[str, Any] = field(default_factory=dict)
+    features_response: Any = None
+    system_items: dict[str, dict[str, Any]] = field(default_factory=dict)
+    schedules: dict[str, Any] = field(default_factory=dict)
+    metering: Any = None
+    maintenance: Any = None
+    bus_errors: Any = None
+    bsb_points: dict[str, Any] = field(default_factory=dict)
+    probe_status: dict[str, str] = field(default_factory=dict)
+
+    def system_item(self, item_id: str, zone: int = 0) -> dict[str, Any] | None:
+        """Return a discovered system-data item."""
+        return self.system_items.get(f"{item_id}:{zone}")
+
+    def system_value(self, item_id: str, zone: int = 0) -> Any:
+        """Return a discovered system-data item value."""
+        item = self.system_item(item_id, zone)
+        return item.get("value") if item else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,4 +261,6 @@ class ElcoData:
     gateway_id: str
     plant: PlantState
     zones: dict[int, ZoneState] = field(default_factory=dict)
+    get_data_responses: list[dict[str, Any]] = field(default_factory=list)
+    discovery: ReadOnlyDiscovery = field(default_factory=ReadOnlyDiscovery)
     captured_at: datetime = field(default_factory=datetime.now, compare=False)

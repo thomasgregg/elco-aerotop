@@ -12,14 +12,23 @@ from aiohttp import ClientError, ClientResponse, ClientSession, ClientTimeout
 from yarl import URL
 
 from .const import (
+    BSB_DISCOVERY_ADDRESSES,
+    BSB_READ_PATH,
+    BUS_ERRORS_PATH,
+    DATA_ITEMS_PATH,
     FEATURES_PATH,
     GET_DATA_PATH,
+    GLOBAL_DATA_ITEM_IDS,
     LOGIN_PATH,
+    MAINTENANCE_PATH,
+    METERING_PATH,
     REQUEST_TIMEOUT,
     SAVE_DHW_PATH,
     SET_DATA_PATH,
     SET_TEMPERATURE_PATH,
+    TIME_PROGRAM_PATH,
     USER_AGENT,
+    ZONE_DATA_ITEM_IDS,
 )
 from .models import ElcoData, PlantState, ZoneState
 
@@ -66,6 +75,7 @@ class ElcoApiClient:
         self._authenticated = False
         self._auth_lock = asyncio.Lock()
         self._timeout = ClientTimeout(total=REQUEST_TIMEOUT)
+        self.last_features_response: Any = None
 
     @property
     def _json_headers(self) -> dict[str, str]:
@@ -118,6 +128,8 @@ class ElcoApiClient:
                 )
                 async with response:
                     payload = await self._decode_json(response, "login")
+                if not isinstance(payload, dict):
+                    raise ElcoResponseError("Login returned an unexpected payload")
                 if not payload.get("ok"):
                     raise ElcoAuthenticationError(
                         str(payload.get("message") or "Wrong username or password")
@@ -130,7 +142,7 @@ class ElcoApiClient:
                 self._authenticated = False
                 raise ElcoConnectionError("Unable to connect to Remocon") from err
 
-    async def _decode_json(self, response: ClientResponse, operation: str) -> dict[str, Any]:
+    async def _decode_json(self, response: ClientResponse, operation: str) -> Any:
         if response.status in (401, 403):
             raise ElcoAuthenticationError("Remocon session expired")
         if response.status >= 400:
@@ -142,18 +154,16 @@ class ElcoApiClient:
             if "account/login" in text.lower() or 'id="loginform"' in text.lower():
                 raise ElcoAuthenticationError("Remocon session expired") from err
             raise ElcoResponseError(f"{operation} did not return JSON") from err
-        if not isinstance(payload, dict):
-            raise ElcoResponseError(f"{operation} returned an unexpected payload")
         return payload
 
-    async def _request_json(
+    async def _request_payload(
         self,
         method: str,
         path: str,
         *,
         body: dict[str, Any] | list[Any] | None = None,
         retry_auth: bool = True,
-    ) -> dict[str, Any]:
+    ) -> Any:
         if not self._authenticated:
             await self.async_login()
         try:
@@ -166,7 +176,7 @@ class ElcoApiClient:
             )
             async with response:
                 payload = await self._decode_json(response, path)
-            if payload.get("ok") is False:
+            if isinstance(payload, dict) and payload.get("ok") is False:
                 raise ElcoResponseError(str(payload.get("message") or f"{path} failed"))
             return payload
         except ElcoAuthenticationError:
@@ -174,28 +184,159 @@ class ElcoApiClient:
             if not retry_auth:
                 raise
             await self.async_login()
-            return await self._request_json(method, path, body=body, retry_auth=False)
+            return await self._request_payload(method, path, body=body, retry_auth=False)
         except ElcoApiError:
             raise
         except (ClientError, TimeoutError) as err:
             raise ElcoConnectionError(f"Unable to communicate with Remocon: {path}") from err
 
-    async def async_get_zone_numbers(self) -> list[int]:
-        """Fetch configured heating zone numbers, falling back to zone 1."""
-        payload = await self._request_json("GET", FEATURES_PATH.format(gateway_id=self.gateway_id))
-        data = payload.get("data", payload)
-        features = data.get("features", data) if isinstance(data, dict) else {}
-        zones = features.get("zones", []) if isinstance(features, dict) else []
-        numbers = sorted(
-            {
-                int(zone["num"])
-                for zone in zones
-                if isinstance(zone, dict)
-                and isinstance(zone.get("num"), int | float)
-                and not zone.get("isHidden", False)
-            }
+    async def _request_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        body: dict[str, Any] | list[Any] | None = None,
+        retry_auth: bool = True,
+    ) -> dict[str, Any]:
+        payload = await self._request_payload(
+            method,
+            path,
+            body=body,
+            retry_auth=retry_auth,
         )
-        return numbers or [1]
+        if not isinstance(payload, dict):
+            raise ElcoResponseError(f"{path} returned an unexpected payload")
+        return payload
+
+    async def async_get_features(self) -> dict[str, Any]:
+        """Fetch the complete capability map returned for this gateway."""
+        payload = await self._request_json(
+            "GET",
+            FEATURES_PATH.format(gateway_id=self.gateway_id),
+        )
+        self.last_features_response = payload
+        data = payload.get("data", payload)
+        if not isinstance(data, dict):
+            raise ElcoResponseError("Features returned invalid data")
+        features = data.get("features", data)
+        if not isinstance(features, dict):
+            raise ElcoResponseError("Features did not contain a capability map")
+        return features
+
+    async def async_get_zone_numbers(
+        self,
+        features: dict[str, Any] | None = None,
+    ) -> list[int]:
+        """Fetch configured heating zone numbers, falling back to zone 1."""
+        capability_map = features if features is not None else await self.async_get_features()
+        zones = capability_map.get("zones", [])
+        numbers: set[int] = set()
+        for zone in zones:
+            if not isinstance(zone, dict) or zone.get("isHidden", False):
+                continue
+            try:
+                numbers.add(int(zone["num"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+        return sorted(numbers) or [1]
+
+    async def async_get_system_items(
+        self,
+        features: dict[str, Any],
+        zone_numbers: list[int],
+    ) -> dict[str, dict[str, Any]]:
+        """Fetch the safe scalar data items exposed by the mobile API."""
+        items = [{"id": item_id, "zn": 0} for item_id in GLOBAL_DATA_ITEM_IDS]
+        items.extend(
+            {"id": item_id, "zn": zone_number}
+            for zone_number in zone_numbers
+            for item_id in ZONE_DATA_ITEM_IDS
+        )
+        payload = await self._request_payload(
+            "POST",
+            DATA_ITEMS_PATH.format(gateway_id=self.gateway_id),
+            body={
+                "useCache": False,
+                "items": items,
+                "features": features,
+                "culture": "en",
+            },
+        )
+        container = payload.get("data", payload) if isinstance(payload, dict) else payload
+        if isinstance(container, list):
+            returned_items = container
+        elif isinstance(container, dict):
+            returned_items = container.get("items", container.get("dataItems", []))
+        else:
+            returned_items = []
+        if not isinstance(returned_items, list):
+            raise ElcoResponseError("System data returned invalid items")
+
+        result: dict[str, dict[str, Any]] = {}
+        for item in returned_items:
+            if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+                continue
+            zone = item.get("zone", item.get("zn", 0))
+            try:
+                zone_number = int(zone)
+            except (TypeError, ValueError):
+                zone_number = 0
+            result[f"{item['id']}:{zone_number}"] = item
+        return result
+
+    async def async_get_schedule(self, program: str) -> Any:
+        """Fetch one read-only weekly time program."""
+        return await self._request_payload(
+            "GET",
+            TIME_PROGRAM_PATH.format(gateway_id=self.gateway_id, program=program),
+        )
+
+    async def async_get_metering(
+        self,
+        features: dict[str, Any],
+        *,
+        has_cooling: bool,
+    ) -> Any:
+        """Fetch read-only metering data when the plant supports it."""
+        payload = await self._request_payload(
+            "POST",
+            METERING_PATH.format(gateway_id=self.gateway_id),
+            body={"features": features, "hasCooling": has_cooling},
+        )
+        return payload.get("data", payload) if isinstance(payload, dict) else payload
+
+    async def async_get_maintenance(self) -> Any:
+        """Fetch read-only maintenance information."""
+        payload = await self._request_payload(
+            "GET",
+            MAINTENANCE_PATH.format(gateway_id=self.gateway_id),
+        )
+        return payload.get("data", payload) if isinstance(payload, dict) else payload
+
+    async def async_get_bus_errors(self) -> Any:
+        """Fetch read-only controller error history."""
+        return await self._request_payload(
+            "GET",
+            BUS_ERRORS_PATH.format(gateway_id=self.gateway_id),
+        )
+
+    async def async_get_bsb_points(self) -> dict[str, Any]:
+        """Fetch the allowlisted read-only BSB parameters."""
+        payload = await self._request_payload(
+            "GET",
+            BSB_READ_PATH.format(
+                gateway_id=self.gateway_id,
+                addresses=",".join(BSB_DISCOVERY_ADDRESSES),
+            ),
+        )
+        container = payload.get("data", payload) if isinstance(payload, dict) else payload
+        if not isinstance(container, list):
+            raise ElcoResponseError("BSB read returned invalid data")
+        return {
+            str(item["address"]): item
+            for item in container
+            if isinstance(item, dict) and item.get("address") is not None
+        }
 
     async def async_get_data(
         self,
@@ -207,6 +348,7 @@ class ElcoApiClient:
         zones_to_fetch = zone_numbers or await self.async_get_zone_numbers()
         plant_raw: dict[str, Any] | None = None
         zones: dict[int, ZoneState] = {}
+        raw_responses: list[dict[str, Any]] = []
 
         for index, zone_number in enumerate(zones_to_fetch):
             payload = await self._request_json(
@@ -218,6 +360,7 @@ class ElcoApiClient:
                     "filter": {"progIds": None, "plant": index == 0, "zone": True},
                 },
             )
+            raw_responses.append(payload)
             data = payload.get("data") or {}
             if not isinstance(data, dict):
                 raise ElcoResponseError("GetData returned invalid data")
@@ -228,7 +371,12 @@ class ElcoApiClient:
 
         if plant_raw is None:
             raise ElcoResponseError("GetData did not return plant data")
-        return ElcoData(self.gateway_id, PlantState.parse(plant_raw), zones)
+        return ElcoData(
+            self.gateway_id,
+            PlantState.parse(plant_raw),
+            zones,
+            get_data_responses=raw_responses,
+        )
 
     async def async_set_zone_temperatures(
         self,

@@ -25,6 +25,7 @@
 - [Overview](#overview)
 - [Features](#features)
 - [Entities](#entities)
+- [Read-only capability discovery](#read-only-capability-discovery)
 - [Installation](#installation)
 - [Home Assistant setup](#home-assistant-setup)
 - [Options](#options)
@@ -70,6 +71,9 @@ account; it does not communicate with the heat pump over the local network.
 - Automatic login, session renewal, and Home Assistant reauthentication flow
 - Isolated cookie session for every configured Remocon account
 - Automatic heating-zone discovery
+- Full key capture for the gateway's Features and plant/zone `GetData` responses
+- Isolated read-only discovery of system data, schedules, metering, maintenance, errors, and
+  allowlisted BSB parameters
 - Conservative five-minute polling interval by default
 - Configurable polling interval from 60 to 3,600 seconds
 - Read-only temperatures and operating-state entities
@@ -87,9 +91,10 @@ All entities are grouped under a device named `ELCO Aerotop <gateway ID>`. Home 
 the final entity ID from the device and entity name, and users may rename it. The patterns below
 therefore use `<device>` and `<zone>` placeholders.
 
-For `N` discovered heating zones, the integration creates up to **6 plant entities plus 7 entities
-per zone**. Writable entities are only created when Remocon returns the value or allowed options
-needed to control them safely.
+Entity creation is capability-driven. An entity is created only when the initial gateway response
+contains the source value it needs. Consequently, two Aerotop installations can expose different
+entity sets even when they run the same integration version. Writable entities also require the
+current value, limits, or allowed options needed to send a validated command.
 
 ### Sensors
 
@@ -97,9 +102,29 @@ needed to control them safely.
 |---|---|---:|---:|---|
 | Outside temperature | `sensor.<device>_outside_temperature` | Plant | °C | Outdoor temperature reported by the ELCO controller. |
 | Domestic hot water temperature | `sensor.<device>_domestic_hot_water_temperature` | Plant | °C | Current temperature measured in the DHW storage tank. |
+| Heating circuit pressure | `sensor.<device>_heating_circuit_pressure` | Plant | bar | System pressure from the read-only system-data endpoint. |
+| Heating circuit flow temperature | `sensor.<device>_heating_circuit_flow_temperature` | Plant | °C | Current primary heating-flow temperature. |
+| Heating circuit flow setpoint temperature | `sensor.<device>_heating_circuit_flow_setpoint_temperature` | Plant | °C | Current primary heating-flow target. |
 | Zone `<zone>` desired temperature | `sensor.<device>_zone_<zone>_desired_temperature` | Per zone | °C | Effective room-temperature target currently requested by the controller. |
 | Zone `<zone>` room temperature | `sensor.<device>_zone_<zone>_room_temperature` | Per zone | °C | Room temperature reported for the zone. The state is unknown if no room sensor is available. |
 | Zone `<zone>` mode | `sensor.<device>_zone_<zone>_mode` | Per zone | — | Read-only representation of the current controller mode. The label comes from Remocon when available. |
+| Zone `<zone>` cooling comfort temperature | `sensor.<device>_zone_<zone>_cooling_comfort_temperature` | Per zone | °C | Cooling comfort target reported by `GetData`. |
+| Zone `<zone>` cooling reduced temperature | `sensor.<device>_zone_<zone>_cooling_reduced_temperature` | Per zone | °C | Cooling reduced target reported by `GetData`. |
+| Zone `<zone>` heating protection temperature | `sensor.<device>_zone_<zone>_heating_protection_temperature` | Per zone | °C | Heating frost/protection target. |
+| Zone `<zone>` cooling protection temperature | `sensor.<device>_zone_<zone>_cooling_protection_temperature` | Per zone | °C | Cooling protection target. |
+| Zone `<zone>` heating holiday temperature | `sensor.<device>_zone_<zone>_heating_holiday_temperature` | Per zone | °C | Heating target used during holidays. |
+| Zone `<zone>` cooling holiday temperature | `sensor.<device>_zone_<zone>_cooling_holiday_temperature` | Per zone | °C | Cooling target used during holidays. |
+| Zone `<zone>` heating flow temperature | `sensor.<device>_zone_<zone>_heating_flow_temperature` | Per zone | °C | Zone heating-flow value from read-only system data. |
+| Zone `<zone>` heating flow offset | `sensor.<device>_zone_<zone>_heating_flow_offset` | Per zone | °C | Zone heating-flow correction. |
+| Zone `<zone>` cooling flow temperature | `sensor.<device>_zone_<zone>_cooling_flow_temperature` | Per zone | °C | Zone cooling-flow value from read-only system data. |
+| Zone `<zone>` cooling flow offset | `sensor.<device>_zone_<zone>_cooling_flow_offset` | Per zone | °C | Zone cooling-flow correction. |
+| Zone `<zone>` derogation temperature | `sensor.<device>_zone_<zone>_derogation_temperature` | Per zone | °C | Temporary zone override reported by system data. |
+| Heating circuit 700 operating mode | `sensor.<device>_heating_circuit_700_operating_mode` | BSB | — | Read-only controller parameter 700. |
+| Heating circuit 710 comfort setpoint | `sensor.<device>_heating_circuit_710_comfort_setpoint` | BSB | °C | Read-only controller parameter 710. |
+| Heating circuit 712 reduced setpoint | `sensor.<device>_heating_circuit_712_reduced_setpoint` | BSB | °C | Read-only controller parameter 712. |
+| Heating circuit 714 frost protection setpoint | `sensor.<device>_heating_circuit_714_frost_protection_setpoint` | BSB | °C | Read-only controller parameter 714. |
+| Heating circuit 720 heating curve slope | `sensor.<device>_heating_circuit_720_heating_curve_slope` | BSB | — | Read-only controller parameter 720. |
+| Heating circuit 730 summer/winter heating limit | `sensor.<device>_heating_circuit_730_summer_winter_heating_limit` | BSB | °C | Read-only controller parameter 730. |
 
 Temperature sensors use Home Assistant's `temperature` device class and `measurement` state class.
 
@@ -108,7 +133,14 @@ Temperature sensors use Home Assistant's `temperature` device class and `measure
 | Entity name | Typical entity ID pattern | Scope | Device class | Description |
 |---|---|---:|---|---|
 | Heat pump running | `binary_sensor.<device>_heat_pump_running` | Plant | Running | Indicates that the heat pump is reported as running. |
+| Flame on | `binary_sensor.<device>_flame_on` | Plant | Running | Burner/flame state when supplied by the controller. |
+| Domestic hot water enabled | `binary_sensor.<device>_domestic_hot_water_enabled` | Plant | Running | Whether domestic-hot-water operation is enabled. |
+| Outside temperature sensor problem | `binary_sensor.<device>_outside_temperature_sensor_problem` | Plant | Problem | Controller error flag for the outdoor probe. |
+| Domestic hot water temperature sensor problem | `binary_sensor.<device>_domestic_hot_water_temperature_sensor_problem` | Plant | Problem | Controller error flag for the DHW storage probe. |
 | Zone `<zone>` heat request | `binary_sensor.<device>_zone_<zone>_heat_request` | Per zone | Running | Controller demand flag for the zone. On systems with cooling support, the source value may represent a combined heating-or-cooling request. |
+| Zone `<zone>` heating active | `binary_sensor.<device>_zone_<zone>_heating_active` | Per zone | Running | Heating-active state returned for the zone. |
+| Zone `<zone>` cooling active | `binary_sensor.<device>_zone_<zone>_cooling_active` | Per zone | Running | Cooling-active state returned for the zone. |
+| Zone `<zone>` room temperature sensor problem | `binary_sensor.<device>_zone_<zone>_room_temperature_sensor_problem` | Per zone | Problem | Controller error flag for the room sensor. |
 
 ### Number controls
 
@@ -132,6 +164,30 @@ also rejects a comfort temperature below its corresponding reduced temperature.
 Mode names and the number of available choices are supplied by Remocon and can differ between
 controllers, firmware versions, and account languages. A select is not created if the gateway does
 not return a list of allowed choices.
+
+## Read-only capability discovery
+
+The normal `Features` and `PlantHomeBsb/GetData` responses are retained in the in-memory snapshot
+so diagnostics can inventory every JSON key returned by the gateway. The integration additionally
+probes these non-mutating endpoint families:
+
+| Family | Data collected | Refresh |
+|---|---|---:|
+| System data | Pressure, flow values, plant/DHW state, and zone values requested by stable item IDs | Every normal poll |
+| Time programs | Heating, supported cooling, and DHW weekly programs | Approximately hourly |
+| Metering | The complete metering response, without assuming one firmware-specific schema | Approximately hourly |
+| Maintenance | The complete maintenance response | Approximately hourly |
+| Controller errors | Read-only bus-error response | Approximately hourly |
+| BSB | Allowlisted addresses 700, 710, 712, 714, 720, and 730 | Approximately hourly |
+
+Each optional family has an independent 15-second timeout and availability result. A missing,
+unsupported, or changed optional endpoint is recorded in diagnostics but does not make the core
+plant and zone entities unavailable. These raw discovery responses are not exposed wholesale as
+entity attributes, which avoids oversized Home Assistant states and accidental identifier leaks.
+
+Discovery is strictly read-only. It does not add generic BSB writing, schedule editing,
+maintenance actions, or metering commands. See [`docs/discovery.md`](docs/discovery.md) for the
+capture and fixture workflow.
 
 ## Installation
 
@@ -225,7 +281,8 @@ captured and tested.
 
 - Plant and zone data are coordinated into a single Home Assistant snapshot.
 - Zone entities are created from the zones discovered during initial setup.
-- A value unsupported by the controller may appear as unknown.
+- Optional sensors and binary sensors are created only when their source value exists during that
+  initial discovery; unsupported values do not create placeholder entities.
 - Writable number and select entities are omitted if Remocon does not provide enough information
   to use them safely.
 - Authentication expiry triggers one controlled login retry.
@@ -235,15 +292,19 @@ captured and tested.
 
 ## Diagnostics and privacy
 
-Home Assistant diagnostics are available from the integration's device page. The integration
-redacts the configured email address, password, and gateway ID from the configuration section.
+Home Assistant diagnostics are available from the integration's device page. The export includes
+an anonymized data snapshot, endpoint availability, and a `response_schema` map containing every
+observed key path and value type. It redacts the configured email, password, gateway ID, common
+identity/location fields, serial numbers, technician details, and identifiers embedded in object
+keys. Long arrays are bounded to keep the diagnostic file manageable.
 
 Remocon credentials are stored in the Home Assistant config entry and are only sent to the
 configured Remocon service. Each entry uses its own cookie session, preventing authentication
 cookies from being shared between configured accounts.
 
-Before sharing diagnostics or logs publicly, check them yourself and remove any remaining plant,
-location, serial-number, or account information.
+The anonymizer is deliberately defensive, but Remocon is undocumented and may introduce a new
+identity field. Before sharing diagnostics publicly, inspect the file and remove anything you
+consider personal. The project accepts anonymized diagnostics as test fixtures only after review.
 
 ## Troubleshooting
 
@@ -302,10 +363,11 @@ credentials, gateway IDs, serial numbers, or unredacted payloads.
 ## Roadmap
 
 - Real-gateway validation across additional Aerotop models and zone configurations
-- Heating and cooling schedules
-- Advanced BSB values such as 700, 710, 712, 714, 720, and 730
-- Energy and long-term statistics where reliable source data exists
-- Expanded anonymized response fixtures and coordinator/config-flow tests
+- Read-only schedule entities after real response shapes are validated
+- Energy and long-term-statistics entities after real metering units and counter semantics are
+  validated
+- Maintenance and controller-error entities after real response shapes are validated
+- Expanded anonymized real-gateway fixtures across models and firmware versions
 - Additional translations
 
 ## Development

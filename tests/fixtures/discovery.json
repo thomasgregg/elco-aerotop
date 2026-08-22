@@ -1,0 +1,105 @@
+{
+  "gateway_id": "<redacted>",
+  "features_response": {
+    "ok": true,
+    "data": {
+      "features": {
+        "zones": [{"num": 1, "name": "<redacted>", "isHidden": false}],
+        "hasMetering": true
+      }
+    }
+  },
+  "get_data_responses": [
+    {
+      "ok": true,
+      "data": {
+        "plantData": {
+          "outsideTemp": 7.5,
+          "dhwStorageTemp": 49.3,
+          "dhwComfortTemp": {"value": 48.0, "min": 40.0, "max": 60.0, "step": 1.0}
+        },
+        "zoneData": {
+          "zone": 1,
+          "desiredRoomTemp": 23.0,
+          "roomTemp": 22.7
+        }
+      }
+    }
+  ],
+  "features": {
+    "zones": [
+      {
+        "num": 1,
+        "name": "<redacted>",
+        "roomSens": true,
+        "isHidden": false
+      }
+    ],
+    "dhwProgSupported": true,
+    "dhwHidden": false,
+    "hasMetering": true,
+    "hasTwoCoolingTemp": false,
+    "distinctHeatCoolSetpoints": false
+  },
+  "system_items": {
+    "HeatingCircuitPressure:0": {
+      "id": "HeatingCircuitPressure",
+      "zone": 0,
+      "value": 1.6
+    },
+    "ChFlowTemp:0": {
+      "id": "ChFlowTemp",
+      "zone": 0,
+      "value": 31.5
+    }
+  },
+  "schedules": {
+    "ChZn1": {
+      "plans": [
+        {
+          "days": [1, 2, 3, 4, 5],
+          "slices": [
+            {"from": 360, "temp": 1},
+            {"from": 1320, "temp": 0}
+          ]
+        }
+      ]
+    },
+    "Dhw": {
+      "plans": []
+    }
+  },
+  "metering": {
+    "oldestMonth": "2026-01",
+    "asKwhRaw": []
+  },
+  "maintenance": {
+    "lastMaintenance": "2025-10-01",
+    "nextMaintenance": "2026-10-01",
+    "technician": "<redacted>"
+  },
+  "bus_errors": [],
+  "bsb_points": {
+    "700": {
+      "address": "700",
+      "textualValue": "Automatic"
+    },
+    "710": {
+      "address": "710",
+      "value": 23.0
+    },
+    "720": {
+      "address": "720",
+      "value": 0.8
+    }
+  },
+  "probe_status": {
+    "system_items": "available",
+    "schedule:ChZn1": "available",
+    "schedule:Dhw": "available",
+    "metering": "available",
+    "maintenance": "available",
+    "bus_errors": "available",
+    "bsb_points": "available"
+  }
+}

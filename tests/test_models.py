@@ -1,6 +1,11 @@
 """Tests for tolerant Remocon data parsing."""
 
-from custom_components.elco_aerotop.models import NumericVariable, PlantState, ZoneState
+from custom_components.elco_aerotop.models import (
+    NumericVariable,
+    PlantState,
+    ReadOnlyDiscovery,
+    ZoneState,
+)
 
 
 def test_parse_web_r2_plant_names() -> None:
@@ -66,3 +71,41 @@ def test_numeric_variable_validates_boundaries_and_step() -> None:
             pass
         else:
             raise AssertionError(f"Expected {invalid} to be rejected")
+
+
+def test_parse_extended_conditional_values() -> None:
+    plant = PlantState.parse(
+        {
+            "flameSensor": True,
+            "dhwEnabled": False,
+            "outsideTempError": False,
+            "hasOutsideTempProbe": True,
+        }
+    )
+    zone = ZoneState.parse(
+        1,
+        {
+            "coolComfortTemp": {"value": 24, "min": 18, "max": 30},
+            "chProtectionTemp": 8,
+            "roomTempError": True,
+            "isCoolingActive": False,
+        },
+    )
+
+    assert plant.flame_on is True
+    assert plant.dhw_enabled is False
+    assert plant.outside_temperature_error is False
+    assert plant.has_outside_temperature_probe is True
+    assert zone.cooling_comfort_temperature.value == 24
+    assert zone.heating_protection_temperature == 8
+    assert zone.room_temperature_error is True
+    assert zone.cooling_active is False
+
+
+def test_read_only_discovery_resolves_system_items() -> None:
+    discovery = ReadOnlyDiscovery(
+        system_items={"ZoneMeasuredTemp:1": {"id": "ZoneMeasuredTemp", "value": 22.4}}
+    )
+
+    assert discovery.system_value("ZoneMeasuredTemp", 1) == 22.4
+    assert discovery.system_item("Missing", 0) is None

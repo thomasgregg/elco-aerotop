@@ -111,14 +111,14 @@ async def test_login_uses_antiforgery_cookie_and_json_credentials() -> None:
     await client.async_login()
 
     assert session.cookie_jar.cookies["__formRequestVerificationToken"] == "token-123"
-    assert session.calls[0][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.1.1")
+    assert session.calls[0][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.0")
     assert session.calls[1][2]["json"] == {
         "email": "user@example.com",
         "password": "secret",
         "rememberMe": False,
         "language": "English_Gb",
     }
-    assert session.calls[1][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.1.1")
+    assert session.calls[1][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.0")
     assert session.calls[0][2]["timeout"].total == 30
 
 
@@ -132,7 +132,82 @@ async def test_get_data_parses_plant_and_zone() -> None:
     assert data.gateway_id == "GATEWAY"
     assert data.plant.outside_temperature == 5.5
     assert data.zones[1].comfort_temperature.value == 21
+    assert data.get_data_responses == [get_data_payload()]
     assert session.calls[-1][2]["json"]["useCache"] is False
+
+
+@pytest.mark.asyncio
+async def test_features_and_system_data_capture_gateway_capabilities() -> None:
+    features_payload = {
+        "ok": True,
+        "data": {
+            "features": {
+                "zones": [{"num": 1, "isHidden": False}],
+                "hasMetering": True,
+            },
+            "contractVersion": 2,
+        },
+    }
+    system_payload = {
+        "items": [
+            {"id": "HeatingCircuitPressure", "zn": 0, "value": 1.6},
+            {"id": "ZoneMeasuredTemp", "zone": 1, "value": 22.4},
+        ]
+    }
+    session = FakeSession(
+        [
+            *login_responses(),
+            FakeResponse(json_data=features_payload),
+            FakeResponse(json_data=system_payload),
+        ]
+    )
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+
+    features = await client.async_get_features()
+    zones = await client.async_get_zone_numbers(features)
+    items = await client.async_get_system_items(features, zones)
+
+    assert client.last_features_response == features_payload
+    assert zones == [1]
+    assert items["HeatingCircuitPressure:0"]["value"] == 1.6
+    assert items["ZoneMeasuredTemp:1"]["value"] == 22.4
+    assert session.calls[-1][2]["json"]["useCache"] is False
+    requested = session.calls[-1][2]["json"]["items"]
+    assert {"id": "HeatingCircuitPressure", "zn": 0} in requested
+    assert {"id": "ZoneMeasuredTemp", "zn": 1} in requested
+
+
+@pytest.mark.asyncio
+async def test_read_only_endpoint_families_accept_their_payload_shapes() -> None:
+    session = FakeSession(
+        [
+            *login_responses(),
+            FakeResponse(json_data={"plans": []}),
+            FakeResponse(json_data={"ok": True, "data": {"asKwhRaw": []}}),
+            FakeResponse(json_data={"ok": True, "data": {"nextMaintenance": "2027-01-01"}}),
+            FakeResponse(json_data=[]),
+            FakeResponse(
+                json_data={
+                    "ok": True,
+                    "data": [
+                        {"address": 700, "textualValue": "Automatic"},
+                        {"address": "710", "value": 23.0},
+                    ],
+                }
+            ),
+        ]
+    )
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+
+    assert await client.async_get_schedule("ChZn1") == {"plans": []}
+    assert await client.async_get_metering({}, has_cooling=False) == {"asKwhRaw": []}
+    assert await client.async_get_maintenance() == {"nextMaintenance": "2027-01-01"}
+    assert await client.async_get_bus_errors() == []
+    assert (await client.async_get_bsb_points())["700"]["textualValue"] == "Automatic"
+
+    assert "/timeProgs/GATEWAY/ChZn1?umsys=si" in session.calls[2][1]
+    assert session.calls[3][2]["json"] == {"features": {}, "hasCooling": False}
+    assert "addresses=700,710,712,714,720,730" in session.calls[-1][1]
 
 
 @pytest.mark.asyncio
