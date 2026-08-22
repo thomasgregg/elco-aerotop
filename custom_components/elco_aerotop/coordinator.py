@@ -28,6 +28,7 @@ _LOGGER = logging.getLogger(__name__)
 
 _SLOW_DISCOVERY_POLL_INTERVAL = 12
 _OPTIONAL_PROBE_TIMEOUT = 15
+_BSB_PROBE_TIMEOUT = 30
 
 
 class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
@@ -60,10 +61,12 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         name: str,
         awaitable: Awaitable[Any],
         status: dict[str, str],
+        *,
+        timeout_seconds: int = _OPTIONAL_PROBE_TIMEOUT,
     ) -> Any:
         """Run an optional read without making the main coordinator unavailable."""
         try:
-            async with asyncio.timeout(_OPTIONAL_PROBE_TIMEOUT):
+            async with asyncio.timeout(timeout_seconds):
                 result = await awaitable
         except Exception as err:  # An optional endpoint must never disable core polling.
             status[name] = f"unavailable:{type(err).__name__}"
@@ -102,6 +105,7 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
             "bsb_points",
             self.api.async_get_bsb_points(),
             status,
+            timeout_seconds=_BSB_PROBE_TIMEOUT,
         )
         for program in programs:
             schedule = await self._async_optional_probe(

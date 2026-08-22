@@ -5,6 +5,7 @@ from __future__ import annotations
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
 from .api import ElcoApiClient
@@ -14,6 +15,7 @@ from .const import (
     CONF_SCAN_INTERVAL,
     DEFAULT_BASE_URL,
     DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
     PLATFORMS,
 )
 from .coordinator import ElcoDataUpdateCoordinator
@@ -40,7 +42,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.runtime_data = coordinator
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    _clear_legacy_configuration_url(hass, api.gateway_id)
     return True
+
+
+def _clear_legacy_configuration_url(hass: HomeAssistant, gateway_id: str) -> None:
+    """Remove the configuration URL saved by releases before 0.2.3."""
+    registry = dr.async_get(hass)
+    device = registry.async_get_device(identifiers={(DOMAIN, gateway_id)})
+    if device is not None and device.configuration_url is not None:
+        registry.async_update_device(device.id, configuration_url=None)
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

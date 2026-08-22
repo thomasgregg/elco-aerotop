@@ -2,6 +2,13 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.2.4
+
+- Explicitly clear the legacy device-registry `configuration_url`, removing the **Visit** button
+  from devices that were originally created by an earlier release.
+- Allow up to 30 seconds for the controller-backed BSB discovery request; real gateway diagnostics
+  showed that the previous 15-second optional-probe limit cancelled this request prematurely.
+
 ## 0.2.3
 
 - Remove the device `configuration_url`. Home Assistant rendered it as a generic **Visit** button,
