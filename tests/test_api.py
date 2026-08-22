@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from yarl import URL
 
-from custom_components.elco_aerotop.api import ElcoApiClient
+from custom_components.elco_aerotop.api import ElcoApiClient, ElcoAuthenticationError
 
 
 class FakeCookieJar:
@@ -111,14 +111,14 @@ async def test_login_uses_antiforgery_cookie_and_json_credentials() -> None:
     await client.async_login()
 
     assert session.cookie_jar.cookies["__formRequestVerificationToken"] == "token-123"
-    assert session.calls[0][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.0")
+    assert session.calls[0][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.1")
     assert session.calls[1][2]["json"] == {
         "email": "user@example.com",
         "password": "secret",
         "rememberMe": False,
         "language": "English_Gb",
     }
-    assert session.calls[1][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.0")
+    assert session.calls[1][2]["headers"]["User-Agent"] == ("ELCO-Aerotop-Home-Assistant/0.2.1")
     assert session.calls[0][2]["timeout"].total == 30
 
 
@@ -208,6 +208,25 @@ async def test_read_only_endpoint_families_accept_their_payload_shapes() -> None
     assert "/timeProgs/GATEWAY/ChZn1?umsys=si" in session.calls[2][1]
     assert session.calls[3][2]["json"] == {"features": {}, "hasCooling": False}
     assert "addresses=700,710,712,714,720,730" in session.calls[-1][1]
+
+
+@pytest.mark.asyncio
+async def test_optional_forbidden_response_does_not_invalidate_core_session() -> None:
+    session = FakeSession(
+        [
+            *login_responses(),
+            FakeResponse(status=403),
+            FakeResponse(json_data=get_data_payload()),
+        ]
+    )
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+
+    with pytest.raises(ElcoAuthenticationError):
+        await client.async_get_schedule("ChZn1")
+    data = await client.async_get_data([1])
+
+    assert data.plant.outside_temperature == 5.5
+    assert [method for method, _url, _kwargs in session.calls] == ["GET", "POST", "GET", "POST"]
 
 
 @pytest.mark.asyncio

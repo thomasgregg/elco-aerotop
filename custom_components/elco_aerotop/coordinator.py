@@ -64,8 +64,6 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         try:
             async with asyncio.timeout(_OPTIONAL_PROBE_TIMEOUT):
                 result = await awaitable
-        except ElcoAuthenticationError:
-            raise
         except Exception as err:  # An optional endpoint must never disable core polling.
             status[name] = f"unavailable:{type(err).__name__}"
             _LOGGER.debug("Optional Remocon probe %s is unavailable: %s", name, err)
@@ -109,15 +107,11 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         names = list(requests)
         results = await asyncio.gather(
             *(self._async_optional_probe(name, requests[name], status) for name in names),
-            return_exceptions=True,
         )
-        for result in results:
-            if isinstance(result, ElcoAuthenticationError):
-                raise result
         discovered = dict(zip(names, results, strict=True))
         for program in programs:
             schedule = discovered.get(f"schedule:{program}")
-            if schedule is not None and not isinstance(schedule, BaseException):
+            if schedule is not None:
                 schedules[program] = schedule
 
         metering = discovered.get("metering")
@@ -129,14 +123,10 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
             features=self._features,
             features_response=self.api.last_features_response,
             schedules=schedules,
-            metering=None if isinstance(metering, BaseException) else metering,
-            maintenance=None if isinstance(maintenance, BaseException) else maintenance,
-            bus_errors=None if isinstance(bus_errors, BaseException) else bus_errors,
-            bsb_points=(
-                bsb_points
-                if isinstance(bsb_points, dict) and not isinstance(bsb_points, BaseException)
-                else {}
-            ),
+            metering=metering,
+            maintenance=maintenance,
+            bus_errors=bus_errors,
+            bsb_points=bsb_points if isinstance(bsb_points, dict) else {},
             probe_status=status,
         )
 

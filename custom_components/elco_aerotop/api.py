@@ -163,6 +163,7 @@ class ElcoApiClient:
         *,
         body: dict[str, Any] | list[Any] | None = None,
         retry_auth: bool = True,
+        invalidate_auth: bool = True,
     ) -> Any:
         if not self._authenticated:
             await self.async_login()
@@ -180,11 +181,18 @@ class ElcoApiClient:
                 raise ElcoResponseError(str(payload.get("message") or f"{path} failed"))
             return payload
         except ElcoAuthenticationError:
-            self._authenticated = False
+            if invalidate_auth:
+                self._authenticated = False
             if not retry_auth:
                 raise
             await self.async_login()
-            return await self._request_payload(method, path, body=body, retry_auth=False)
+            return await self._request_payload(
+                method,
+                path,
+                body=body,
+                retry_auth=False,
+                invalidate_auth=invalidate_auth,
+            )
         except ElcoApiError:
             raise
         except (ClientError, TimeoutError) as err:
@@ -261,6 +269,8 @@ class ElcoApiClient:
                 "features": features,
                 "culture": "en",
             },
+            retry_auth=False,
+            invalidate_auth=False,
         )
         container = payload.get("data", payload) if isinstance(payload, dict) else payload
         if isinstance(container, list):
@@ -289,6 +299,8 @@ class ElcoApiClient:
         return await self._request_payload(
             "GET",
             TIME_PROGRAM_PATH.format(gateway_id=self.gateway_id, program=program),
+            retry_auth=False,
+            invalidate_auth=False,
         )
 
     async def async_get_metering(
@@ -302,6 +314,8 @@ class ElcoApiClient:
             "POST",
             METERING_PATH.format(gateway_id=self.gateway_id),
             body={"features": features, "hasCooling": has_cooling},
+            retry_auth=False,
+            invalidate_auth=False,
         )
         return payload.get("data", payload) if isinstance(payload, dict) else payload
 
@@ -310,6 +324,8 @@ class ElcoApiClient:
         payload = await self._request_payload(
             "GET",
             MAINTENANCE_PATH.format(gateway_id=self.gateway_id),
+            retry_auth=False,
+            invalidate_auth=False,
         )
         return payload.get("data", payload) if isinstance(payload, dict) else payload
 
@@ -318,6 +334,8 @@ class ElcoApiClient:
         return await self._request_payload(
             "GET",
             BUS_ERRORS_PATH.format(gateway_id=self.gateway_id),
+            retry_auth=False,
+            invalidate_auth=False,
         )
 
     async def async_get_bsb_points(self) -> dict[str, Any]:
@@ -328,6 +346,8 @@ class ElcoApiClient:
                 gateway_id=self.gateway_id,
                 addresses=",".join(BSB_DISCOVERY_ADDRESSES),
             ),
+            retry_auth=False,
+            invalidate_auth=False,
         )
         container = payload.get("data", payload) if isinstance(payload, dict) else payload
         if not isinstance(container, list):

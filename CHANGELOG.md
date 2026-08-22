@@ -2,6 +2,13 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.2.1
+
+- Prevent an authorization response from an optional discovery endpoint from incorrectly starting
+  Home Assistant's reauthentication repair flow after core plant polling already succeeded.
+- Disable authentication retries for optional probes. A genuine expired session is still detected
+  and renewed by the next core plant request.
+
 ## 0.2.0
 
 - Capture the complete `Features` and per-zone `PlantHomeBsb/GetData` response structures for
