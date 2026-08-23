@@ -55,8 +55,8 @@ numbers, addresses, or other personal data.
 | Zone thermostat and domestic hot water | Controls | Enabled | Primary user-facing controls |
 | Zone/DHW reduced temperatures | Configuration | Enabled | Independent stored setpoints not represented by the native controls |
 | Duplicate comfort numbers and mode selects | Configuration | Disabled | Compatibility and advanced access without duplicating primary controls |
-| Holiday operating level | Configuration | Enabled | Relevant setting associated with holiday calendars; currently read-only |
-| Cooling, protection, holiday, and flow-offset values | Configuration | Disabled | Advanced settings rather than live measurements; currently read-only |
+| Holiday operating level | Diagnostics | Enabled | Relevant read-only setting associated with holiday calendars |
+| Cooling, protection, holiday, and flow-offset values | Diagnostics | Disabled | Advanced read-only settings rather than live measurements |
 | Outdoor, DHW, room, desired, pressure, flow, return, setpoint, demand, running, and flame values | Sensors | Enabled | Useful operational measurements and states |
 | Metadata, faults, maintenance, and health | Diagnostics | Enabled | Important device and problem information kept out of normal sensors |
 | Duplicate activity states and internal gas/source/hot-gas values | Diagnostics | Disabled | Native-control overlap or specialist troubleshooting |
@@ -64,9 +64,9 @@ numbers, addresses, or other personal data.
 | All 80 energy-history entities | Diagnostics | Disabled | Fixed historical records, not increasing Energy Dashboard counters |
 
 Entity category and entity domain answer different questions. Holiday operating level is a sensor
-because it is read-only, but Home Assistant displays it in Configuration because it describes
-controller configuration. A diagnostic temperature remains a temperature sensor even though it
-appears under Diagnostics.
+because it is read-only, and Home Assistant displays it in Diagnostics because
+configuration-category entities must provide a control. A diagnostic temperature remains a
+temperature sensor even though it appears under Diagnostics.
 
 ## Primary controls
 
@@ -168,10 +168,10 @@ out-of-service flag makes only the affected entity unavailable.
 On cooling-capable systems, heat request may represent a combined heating-or-cooling request. The
 thermostat activity is preferable when separate heating/cooling flags are returned.
 
-## Configuration values
+## Diagnostic configuration values
 
-These are read-only sensors describing controller configuration. They do not become writable
-merely because Home Assistant displays them under Configuration.
+These are read-only sensors describing controller configuration. Home Assistant displays them
+under Diagnostics because sensor entities cannot use the writable Configuration category.
 
 | Entity | Typical entity ID | Default | Created when |
 |---|---|:---:|---|

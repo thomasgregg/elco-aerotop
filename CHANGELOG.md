@@ -4,6 +4,16 @@ All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
 ## Unreleased
 
+## 0.3.10
+
+- Classify all read-only controller-configuration sensors as Diagnostics so Home Assistant accepts
+  them while preserving their entity IDs and enabled/disabled registry choices.
+- Retry one transient Remocon `Communication error` during ordinary core polling as well as the
+  existing uncached pre-write read, without retrying authentication, connection, optional-probe,
+  or write failures.
+- Refresh the README overview with a current Home Assistant dashboard screenshot and remove the
+  outdated early-development and tester-warning callouts.
+
 ## 0.3.9
 
 - Serialize polling, optional discovery, and all heating/DHW writes at the gateway boundary so

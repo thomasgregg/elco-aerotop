@@ -458,42 +458,42 @@ async def async_setup_entry(
                 "cooling_comfort_temperature",
                 "cooling comfort temperature",
                 zone.cooling_comfort_temperature.value,
-                EntityCategory.CONFIG,
+                EntityCategory.DIAGNOSTIC,
                 False,
             ),
             (
                 "cooling_reduced_temperature",
                 "cooling reduced temperature",
                 zone.cooling_reduced_temperature.value,
-                EntityCategory.CONFIG,
+                EntityCategory.DIAGNOSTIC,
                 False,
             ),
             (
                 "heating_protection_temperature",
                 "heating protection temperature",
                 zone.heating_protection_temperature,
-                EntityCategory.CONFIG,
+                EntityCategory.DIAGNOSTIC,
                 False,
             ),
             (
                 "cooling_protection_temperature",
                 "cooling protection temperature",
                 zone.cooling_protection_temperature,
-                EntityCategory.CONFIG,
+                EntityCategory.DIAGNOSTIC,
                 False,
             ),
             (
                 "heating_holiday_temperature",
                 "heating holiday temperature",
                 zone.heating_holiday_temperature,
-                EntityCategory.CONFIG,
+                EntityCategory.DIAGNOSTIC,
                 False,
             ),
             (
                 "cooling_holiday_temperature",
                 "cooling holiday temperature",
                 zone.cooling_holiday_temperature,
-                EntityCategory.CONFIG,
+                EntityCategory.DIAGNOSTIC,
                 False,
             ),
         )
@@ -527,7 +527,7 @@ async def async_setup_entry(
                         if state.zones[zone_id].use_reduced_operation_mode_on_holiday
                         else "Frost protection"
                     ),
-                    entity_category=EntityCategory.CONFIG,
+                    entity_category=EntityCategory.DIAGNOSTIC,
                 )
             )
 
@@ -543,7 +543,7 @@ async def async_setup_entry(
                 "HeatingFlowOffset",
                 "heating_flow_offset",
                 "heating flow offset",
-                EntityCategory.CONFIG,
+                EntityCategory.DIAGNOSTIC,
                 False,
             ),
             (
@@ -557,7 +557,7 @@ async def async_setup_entry(
                 "CoolingFlowOffset",
                 "cooling_flow_offset",
                 "cooling flow offset",
-                EntityCategory.CONFIG,
+                EntityCategory.DIAGNOSTIC,
                 False,
             ),
             ("ZoneDeroga", "derogation_temperature", "derogation temperature", None, True),

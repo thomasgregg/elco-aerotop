@@ -66,7 +66,14 @@ def _install_homeassistant_stubs() -> None:
 
 _install_homeassistant_stubs()
 
-from custom_components.elco_aerotop.api import ElcoResponseError  # noqa: E402
+from homeassistant.exceptions import ConfigEntryAuthFailed  # noqa: E402
+from homeassistant.helpers.update_coordinator import UpdateFailed  # noqa: E402
+
+from custom_components.elco_aerotop.api import (  # noqa: E402
+    ElcoAuthenticationError,
+    ElcoConnectionError,
+    ElcoResponseError,
+)
 from custom_components.elco_aerotop.coordinator import (  # noqa: E402
     ElcoDataUpdateCoordinator,
 )
@@ -108,10 +115,12 @@ class FakeApi:
     def __init__(self, responses: list[ElcoData | Exception] | None = None) -> None:
         self.responses = list(responses or [_data()])
         self.get_data_calls = 0
+        self.get_data_arguments: list[tuple[list[int], bool]] = []
         self.write_calls: list[tuple[str, tuple, dict]] = []
 
-    async def async_get_data(self, _zones, *, use_cache=True) -> ElcoData:
+    async def async_get_data(self, zones, *, use_cache=True) -> ElcoData:
         self.get_data_calls += 1
+        self.get_data_arguments.append((list(zones), use_cache))
         response = self.responses.pop(0) if len(self.responses) > 1 else self.responses[0]
         if isinstance(response, Exception):
             raise response
@@ -139,8 +148,22 @@ def _coordinator(api: FakeApi | None = None) -> ElcoDataUpdateCoordinator:
     )
     coordinator._features = {}
     coordinator._zone_numbers = [1]
+    coordinator._polls_until_slow_discovery = 1
     coordinator.data = _data()
     return coordinator
+
+
+def _multi_zone_data() -> ElcoData:
+    data = _data()
+    zone_2 = ZoneState.parse(
+        2,
+        {
+            "chComfortTemp": {"value": 21, "min": 10, "max": 30, "step": 0.5},
+            "chReducedTemp": {"value": 18, "min": 10, "max": 30, "step": 0.5},
+            "mode": {"value": 1, "allowedOptions": [0, 1, 2, 3]},
+        },
+    )
+    return ElcoData("GATEWAY", data.plant, {1: data.zones[1], 2: zone_2})
 
 
 @pytest.mark.asyncio
@@ -187,6 +210,7 @@ async def test_fresh_data_retries_one_transient_communication_error(monkeypatch)
 
     assert result == _data()
     assert api.get_data_calls == 2
+    assert api.get_data_arguments == [([1], False), ([1], False)]
     sleep.assert_awaited_once_with(1)
 
 
@@ -202,6 +226,99 @@ async def test_fresh_data_does_not_retry_non_transient_response_error(monkeypatc
 
     assert api.get_data_calls == 1
     sleep.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_core_poll_retries_one_transient_communication_error(monkeypatch) -> None:
+    api = FakeApi([ElcoResponseError("Communication error"), _data()])
+    coordinator = _coordinator(api)
+    sleep = AsyncMock()
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+
+    result = await coordinator._async_update_data()
+
+    assert result.plant == _data().plant
+    assert coordinator.last_successful_update == result.captured_at
+    assert api.get_data_arguments == [([1], True), ([1], True)]
+    sleep.assert_awaited_once_with(1)
+
+
+@pytest.mark.asyncio
+async def test_core_poll_fails_after_two_communication_errors(monkeypatch) -> None:
+    api = FakeApi(
+        [
+            ElcoResponseError("Communication error"),
+            ElcoResponseError("Communication error"),
+        ]
+    )
+    coordinator = _coordinator(api)
+    sleep = AsyncMock()
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+
+    with pytest.raises(UpdateFailed, match="Communication error"):
+        await coordinator._async_update_data()
+
+    assert api.get_data_calls == 2
+    sleep.assert_awaited_once_with(1)
+
+
+@pytest.mark.asyncio
+async def test_core_poll_does_not_retry_other_response_errors(monkeypatch) -> None:
+    api = FakeApi([ElcoResponseError("Unsupported request")])
+    coordinator = _coordinator(api)
+    sleep = AsyncMock()
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+
+    with pytest.raises(UpdateFailed, match="Unsupported request"):
+        await coordinator._async_update_data()
+
+    assert api.get_data_calls == 1
+    sleep.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_core_poll_does_not_retry_authentication_errors(monkeypatch) -> None:
+    api = FakeApi([ElcoAuthenticationError("Remocon session expired")])
+    coordinator = _coordinator(api)
+    sleep = AsyncMock()
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+
+    with pytest.raises(ConfigEntryAuthFailed):
+        await coordinator._async_update_data()
+
+    assert api.get_data_calls == 1
+    sleep.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_core_poll_does_not_retry_connection_errors(monkeypatch) -> None:
+    api = FakeApi([ElcoConnectionError("Unable to communicate with Remocon")])
+    coordinator = _coordinator(api)
+    sleep = AsyncMock()
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+
+    with pytest.raises(UpdateFailed, match="Unable to communicate with Remocon"):
+        await coordinator._async_update_data()
+
+    assert api.get_data_calls == 1
+    sleep.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_core_poll_restarts_complete_multi_zone_read_after_partial_failure(
+    monkeypatch,
+) -> None:
+    api = FakeApi([ElcoResponseError("Communication error"), _multi_zone_data()])
+    coordinator = _coordinator(api)
+    coordinator._zone_numbers = [1, 2]
+    sleep = AsyncMock()
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+
+    result = await coordinator._async_update_data()
+
+    assert list(result.zones) == [1, 2]
+    assert api.get_data_arguments == [([1, 2], True), ([1, 2], True)]
+    sleep.assert_awaited_once_with(1)
 
 
 @pytest.mark.asyncio

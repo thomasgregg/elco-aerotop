@@ -41,18 +41,7 @@ The integration uses the structured JSON endpoints behind Remocon.net. It is a *
 integration, so it requires internet access and a working Remocon.net account; it does not connect
 directly to the heat pump over the local network.
 
-> [!IMPORTANT]
-> **Project status: early development.** Monitoring is non-destructive. Write controls follow the
-> current Remocon request format but still need broader testing across ELCO gateways and Aerotop
-> models. Start with monitoring and verify the first setpoint change on the controller or in the
-> official application.
-
-> [!WARNING]
-> **Real-system testers are wanted.** Write controls, holiday calendars, and schedule discovery
-> have automated coverage but limited field testing. Reports from other models and populated
-> schedules are welcome in [GitHub Issues](https://github.com/thomasgregg/elco-aerotop/issues).
-> Inspect diagnostic exports before sharing them and never include credentials, cookies, tokens,
-> or personal data.
+![ELCO Aerotop heating and hot-water dashboard in Home Assistant](docs/images/home-assistant-dashboard.png)
 
 ## What you can do
 

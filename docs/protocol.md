@@ -117,8 +117,9 @@ Its body contains the full fresh `plantData` snapshot plus `comfortTemp`, `reduc
 
 Runtime polling, background discovery, and write sequences share one gateway-traffic lock. A user
 command cancels optional discovery before its uncached read and write, and its immediate state
-refresh does not start another slow discovery pass. The uncached pre-write read retries one
-transient Remocon `Communication error`; write requests themselves are not automatically retried.
+refresh does not start another slow discovery pass. Core runtime polling and the uncached pre-write
+read retry one transient Remocon `Communication error`; optional discovery and write requests are
+not automatically retried.
 
 A heating-zone mode uses:
 

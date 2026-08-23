@@ -40,8 +40,8 @@ _LOGGER = logging.getLogger(__name__)
 _SLOW_DISCOVERY_INTERVAL_SECONDS = 3600
 _OPTIONAL_PROBE_TIMEOUT = 65
 _BSB_PROBE_TIMEOUT = 30
-_FRESH_DATA_ATTEMPTS = 2
-_FRESH_DATA_RETRY_DELAY_SECONDS = 1
+_GET_DATA_ATTEMPTS = 2
+_GET_DATA_RETRY_DELAY_SECONDS = 1
 
 
 class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
@@ -429,7 +429,7 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
                     self._features = await self.api.async_get_features()
                 if self._zone_numbers is None:
                     self._zone_numbers = await self.api.async_get_zone_numbers(self._features)
-                data = await self.api.async_get_data(self._zone_numbers)
+                data = await self._async_get_data_with_retry(use_cache=True)
 
                 status = dict(self._slow_discovery.probe_status)
                 system_items = await self._async_optional_probe(
@@ -471,21 +471,29 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         except ElcoApiError as err:
             raise UpdateFailed(str(err)) from err
 
-    async def _async_fresh_data(self) -> ElcoData:
-        if self._zone_numbers is None:
-            self._zone_numbers = await self.api.async_get_zone_numbers()
-        for attempt in range(_FRESH_DATA_ATTEMPTS):
+    async def _async_get_data_with_retry(self, *, use_cache: bool) -> ElcoData:
+        """Fetch core plant data, retrying one transient controller response."""
+        assert self._zone_numbers is not None
+        for attempt in range(_GET_DATA_ATTEMPTS):
             try:
-                return await self.api.async_get_data(self._zone_numbers, use_cache=False)
+                return await self.api.async_get_data(
+                    self._zone_numbers,
+                    use_cache=use_cache,
+                )
             except ElcoResponseError as err:
                 if (
                     "communication error" not in str(err).casefold()
-                    or attempt == _FRESH_DATA_ATTEMPTS - 1
+                    or attempt == _GET_DATA_ATTEMPTS - 1
                 ):
                     raise
-                _LOGGER.debug("Retrying fresh Remocon data after a communication error")
-                await asyncio.sleep(_FRESH_DATA_RETRY_DELAY_SECONDS)
-        raise RuntimeError("Fresh Remocon data retry loop exhausted")
+                _LOGGER.debug("Retrying Remocon GetData after a communication error")
+                await asyncio.sleep(_GET_DATA_RETRY_DELAY_SECONDS)
+        raise RuntimeError("Remocon GetData retry loop exhausted")
+
+    async def _async_fresh_data(self) -> ElcoData:
+        if self._zone_numbers is None:
+            self._zone_numbers = await self.api.async_get_zone_numbers()
+        return await self._async_get_data_with_retry(use_cache=False)
 
     async def _async_refresh_after_write(self) -> None:
         """Refresh core state without launching optional discovery traffic."""
