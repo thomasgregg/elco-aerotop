@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Any
@@ -19,6 +20,7 @@ from .api import (
     ElcoApiError,
     ElcoAuthenticationError,
     ElcoConnectionError,
+    ElcoResponseError,
 )
 from .capabilities import supports_cooling
 from .const import (
@@ -38,10 +40,12 @@ _LOGGER = logging.getLogger(__name__)
 _SLOW_DISCOVERY_INTERVAL_SECONDS = 3600
 _OPTIONAL_PROBE_TIMEOUT = 65
 _BSB_PROBE_TIMEOUT = 30
+_FRESH_DATA_ATTEMPTS = 2
+_FRESH_DATA_RETRY_DELAY_SECONDS = 1
 
 
 class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
-    """Coordinate a single poll and serialize all appliance writes."""
+    """Coordinate polling and serialize controller-facing gateway traffic."""
 
     def __init__(
         self,
@@ -62,6 +66,7 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         self._features: dict[str, Any] | None = None
         self._zone_numbers: list[int] | None = None
         self._command_lock = asyncio.Lock()
+        self._gateway_lock = asyncio.Lock()
         self._discovery_lock = asyncio.Lock()
         self._slow_discovery = ReadOnlyDiscovery()
         self._slow_discovery_poll_count = max(
@@ -71,6 +76,7 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         self._polls_until_slow_discovery = 0
         self._initial_discovery_complete = False
         self._background_discovery_task: asyncio.Task[None] | None = None
+        self._skip_slow_discovery_once = False
         self.last_successful_update: datetime | None = None
         self._successful_update_listeners: set[Callable[[], None]] = set()
 
@@ -110,6 +116,23 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
             return None
         status[name] = "available"
         return result
+
+    async def _async_serialized_optional_probe(
+        self,
+        name: str,
+        request: Callable[[], Awaitable[Any]],
+        status: dict[str, str],
+        *,
+        timeout_seconds: int = _OPTIONAL_PROBE_TIMEOUT,
+    ) -> Any:
+        """Run one optional controller request without overlapping core traffic."""
+        async with self._gateway_lock:
+            return await self._async_optional_probe(
+                name,
+                request(),
+                status,
+                timeout_seconds=timeout_seconds,
+            )
 
     def _schedule_programs(self, data: ElcoData) -> tuple[list[str], bool]:
         """Return applicable schedule names and the cooling capability."""
@@ -235,7 +258,8 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
                 return
             source_data = self.data
             if refresh_core:
-                base = await self._async_refresh_core_discovery(source_data)
+                async with self._gateway_lock:
+                    base = await self._async_refresh_core_discovery(source_data)
             else:
                 base = self._slow_discovery
             status = dict(source_data.discovery.probe_status)
@@ -251,9 +275,9 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
                     status[f"bsb_points:{group_name}"] = "unsupported:feature"
                     supported_bsb_groups -= 1
                     continue
-                group = await self._async_optional_probe(
+                group = await self._async_serialized_optional_probe(
                     f"bsb_points:{group_name}",
-                    self.api.async_get_bsb_points(addresses),
+                    lambda addresses=addresses: self.api.async_get_bsb_points(addresses),
                     status,
                     timeout_seconds=_BSB_PROBE_TIMEOUT,
                 )
@@ -265,41 +289,44 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
             # every BSB and schedule request serialized to avoid gateway contention.
             schedules: dict[str, Any] = {}
             for program in programs:
-                schedule = await self._async_optional_probe(
+                schedule = await self._async_serialized_optional_probe(
                     f"schedule:{program}",
-                    self.api.async_get_schedule(program),
+                    lambda program=program: self.api.async_get_schedule(program),
                     status,
                 )
                 if schedule is not None:
                     schedules[program] = schedule
 
             if self._features.get("hasMetering", False):
-                metering = await self._async_optional_probe(
+                metering = await self._async_serialized_optional_probe(
                     "metering",
-                    self.api.async_get_metering(self._features, has_cooling=has_cooling),
+                    lambda: self.api.async_get_metering(
+                        self._features,
+                        has_cooling=has_cooling,
+                    ),
                     status,
                 )
             else:
                 metering = None
                 status["metering"] = "unsupported:feature"
-            maintenance = await self._async_optional_probe(
+            maintenance = await self._async_serialized_optional_probe(
                 "maintenance",
-                self.api.async_get_maintenance(),
+                self.api.async_get_maintenance,
                 status,
             )
-            automated_monitoring = await self._async_optional_probe(
+            automated_monitoring = await self._async_serialized_optional_probe(
                 "automated_monitoring",
-                self.api.async_get_automated_monitoring(),
+                self.api.async_get_automated_monitoring,
                 status,
             )
-            bsb_boiler_data = await self._async_optional_probe(
+            bsb_boiler_data = await self._async_serialized_optional_probe(
                 "bsb_boiler_data",
-                self.api.async_get_bsb_boiler_data(),
+                self.api.async_get_bsb_boiler_data,
                 status,
             )
-            bsb_plant_data = await self._async_optional_probe(
+            bsb_plant_data = await self._async_serialized_optional_probe(
                 "bsb_plant_data",
-                self.api.async_get_bsb_plant_data(),
+                self.api.async_get_bsb_plant_data,
                 status,
             )
             menu_items: dict[str, dict[str, Any]] = {}
@@ -309,9 +336,9 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
                 available_menu_items = 0
                 menu_item_ids = self._menu_item_ids()
                 for item_id in menu_item_ids:
-                    returned_items = await self._async_optional_probe(
+                    returned_items = await self._async_serialized_optional_probe(
                         f"menu_item:{item_id}",
-                        self.api.async_get_menu_items((item_id,)),
+                        lambda item_id=item_id: self.api.async_get_menu_items((item_id,)),
                         status,
                     )
                     if isinstance(returned_items, dict):
@@ -331,9 +358,9 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
             for group_name, addresses in BSB_DISCOVERY_GROUPS.items():
                 if not group_name.startswith("energy_history_"):
                     continue
-                group = await self._async_optional_probe(
+                group = await self._async_serialized_optional_probe(
                     f"bsb_points:{group_name}",
-                    self.api.async_get_bsb_points(addresses),
+                    lambda addresses=addresses: self.api.async_get_bsb_points(addresses),
                     status,
                     timeout_seconds=_BSB_PROBE_TIMEOUT,
                 )
@@ -379,6 +406,16 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
             f"{DOMAIN} deferred discovery for {self.api.gateway_id}",
         )
 
+    async def _async_cancel_deferred_discovery(self) -> None:
+        """Stop optional gateway traffic before a user command."""
+        task = self._background_discovery_task
+        if task is None or task.done() or task is asyncio.current_task():
+            return
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+        self._background_discovery_task = None
+
     def cancel_deferred_discovery(self) -> None:
         """Cancel entry-owned discovery during unload."""
         if self._background_discovery_task is not None:
@@ -386,29 +423,33 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
 
     async def _async_update_data(self) -> ElcoData:
         try:
-            if self._features is None:
-                self._features = await self.api.async_get_features()
-            if self._zone_numbers is None:
-                self._zone_numbers = await self.api.async_get_zone_numbers(self._features)
-            data = await self.api.async_get_data(self._zone_numbers)
+            start_slow_discovery = False
+            async with self._gateway_lock:
+                if self._features is None:
+                    self._features = await self.api.async_get_features()
+                if self._zone_numbers is None:
+                    self._zone_numbers = await self.api.async_get_zone_numbers(self._features)
+                data = await self.api.async_get_data(self._zone_numbers)
 
-            status = dict(self._slow_discovery.probe_status)
-            system_items = await self._async_optional_probe(
-                "system_items",
-                self.api.async_get_system_items(self._features, self._zone_numbers),
-                status,
-            )
+                status = dict(self._slow_discovery.probe_status)
+                system_items = await self._async_optional_probe(
+                    "system_items",
+                    self.api.async_get_system_items(self._features, self._zone_numbers),
+                    status,
+                )
 
-            if self._polls_until_slow_discovery <= 0:
-                if not self._initial_discovery_complete:
-                    self._slow_discovery = await self._async_refresh_core_discovery(data)
-                    self._initial_discovery_complete = True
+                if self._skip_slow_discovery_once:
+                    pass
+                elif self._polls_until_slow_discovery <= 0:
+                    if not self._initial_discovery_complete:
+                        self._slow_discovery = await self._async_refresh_core_discovery(data)
+                        self._initial_discovery_complete = True
+                    else:
+                        start_slow_discovery = True
+                    self._polls_until_slow_discovery = self._slow_discovery_poll_count - 1
+                    status.update(self._slow_discovery.probe_status)
                 else:
-                    self.start_deferred_discovery(refresh_core=True)
-                self._polls_until_slow_discovery = self._slow_discovery_poll_count - 1
-                status.update(self._slow_discovery.probe_status)
-            else:
-                self._polls_until_slow_discovery -= 1
+                    self._polls_until_slow_discovery -= 1
 
             discovery = replace(
                 self._slow_discovery,
@@ -420,6 +461,8 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
             updated_data = replace(data, discovery=discovery)
             self.last_successful_update = data.captured_at
             self._notify_successful_update_listeners()
+            if start_slow_discovery:
+                self.start_deferred_discovery(refresh_core=True)
             return updated_data
         except ElcoAuthenticationError as err:
             raise ConfigEntryAuthFailed from err
@@ -431,7 +474,26 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
     async def _async_fresh_data(self) -> ElcoData:
         if self._zone_numbers is None:
             self._zone_numbers = await self.api.async_get_zone_numbers()
-        return await self.api.async_get_data(self._zone_numbers, use_cache=False)
+        for attempt in range(_FRESH_DATA_ATTEMPTS):
+            try:
+                return await self.api.async_get_data(self._zone_numbers, use_cache=False)
+            except ElcoResponseError as err:
+                if (
+                    "communication error" not in str(err).casefold()
+                    or attempt == _FRESH_DATA_ATTEMPTS - 1
+                ):
+                    raise
+                _LOGGER.debug("Retrying fresh Remocon data after a communication error")
+                await asyncio.sleep(_FRESH_DATA_RETRY_DELAY_SECONDS)
+        raise RuntimeError("Fresh Remocon data retry loop exhausted")
+
+    async def _async_refresh_after_write(self) -> None:
+        """Refresh core state without launching optional discovery traffic."""
+        self._skip_slow_discovery_once = True
+        try:
+            await self.async_request_refresh()
+        finally:
+            self._skip_slow_discovery_once = False
 
     async def async_set_zone_temperature(
         self,
@@ -442,24 +504,26 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         """Safely update one zone temperature while preserving its companion value."""
         async with self._command_lock:
             try:
-                fresh = await self._async_fresh_data()
-                zone = fresh.zones[zone_number]
-                comfort = zone.comfort_temperature.value
-                reduced = zone.reduced_temperature.value
-                if comfort is None or reduced is None:
-                    raise HomeAssistantError("Remocon did not return both zone temperatures")
-                if kind == "comfort":
-                    comfort = value
-                elif kind == "reduced":
-                    reduced = value
-                else:
-                    raise HomeAssistantError(f"Unsupported temperature kind: {kind}")
-                await self.api.async_set_zone_temperatures(
-                    zone,
-                    comfort=comfort,
-                    reduced=reduced,
-                )
-                await self.async_request_refresh()
+                await self._async_cancel_deferred_discovery()
+                async with self._gateway_lock:
+                    fresh = await self._async_fresh_data()
+                    zone = fresh.zones[zone_number]
+                    comfort = zone.comfort_temperature.value
+                    reduced = zone.reduced_temperature.value
+                    if comfort is None or reduced is None:
+                        raise HomeAssistantError("Remocon did not return both zone temperatures")
+                    if kind == "comfort":
+                        comfort = value
+                    elif kind == "reduced":
+                        reduced = value
+                    else:
+                        raise HomeAssistantError(f"Unsupported temperature kind: {kind}")
+                    await self.api.async_set_zone_temperatures(
+                        zone,
+                        comfort=comfort,
+                        reduced=reduced,
+                    )
+                await self._async_refresh_after_write()
             except KeyError as err:
                 raise HomeAssistantError(f"Heating zone {zone_number} is unavailable") from err
             except ValueError as err:
@@ -479,20 +543,26 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         """Safely update DHW settings while preserving unchanged values."""
         async with self._command_lock:
             try:
-                fresh = await self._async_fresh_data()
-                plant = fresh.plant
-                new_comfort = plant.dhw_comfort_temperature.value if comfort is None else comfort
-                new_reduced = plant.dhw_reduced_temperature.value if reduced is None else reduced
-                new_mode = plant.dhw_mode.value if mode is None else mode
-                if new_comfort is None or new_reduced is None or new_mode is None:
-                    raise HomeAssistantError("Remocon did not return complete DHW settings")
-                await self.api.async_set_dhw(
-                    plant,
-                    comfort=new_comfort,
-                    reduced=new_reduced,
-                    mode=new_mode,
-                )
-                await self.async_request_refresh()
+                await self._async_cancel_deferred_discovery()
+                async with self._gateway_lock:
+                    fresh = await self._async_fresh_data()
+                    plant = fresh.plant
+                    new_comfort = (
+                        plant.dhw_comfort_temperature.value if comfort is None else comfort
+                    )
+                    new_reduced = (
+                        plant.dhw_reduced_temperature.value if reduced is None else reduced
+                    )
+                    new_mode = plant.dhw_mode.value if mode is None else mode
+                    if new_comfort is None or new_reduced is None or new_mode is None:
+                        raise HomeAssistantError("Remocon did not return complete DHW settings")
+                    await self.api.async_set_dhw(
+                        plant,
+                        comfort=new_comfort,
+                        reduced=new_reduced,
+                        mode=new_mode,
+                    )
+                await self._async_refresh_after_write()
             except ValueError as err:
                 raise HomeAssistantError(str(err)) from err
             except ElcoAuthenticationError as err:
@@ -504,10 +574,12 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         """Safely update a heating-zone operating mode."""
         async with self._command_lock:
             try:
-                fresh = await self._async_fresh_data()
-                zone = fresh.zones[zone_number]
-                await self.api.async_set_zone_mode(fresh.plant, zone, mode=mode)
-                await self.async_request_refresh()
+                await self._async_cancel_deferred_discovery()
+                async with self._gateway_lock:
+                    fresh = await self._async_fresh_data()
+                    zone = fresh.zones[zone_number]
+                    await self.api.async_set_zone_mode(fresh.plant, zone, mode=mode)
+                await self._async_refresh_after_write()
             except KeyError as err:
                 raise HomeAssistantError(f"Heating zone {zone_number} is unavailable") from err
             except ValueError as err:

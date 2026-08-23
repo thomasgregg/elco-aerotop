@@ -115,6 +115,11 @@ POST /R2/PlantDhwBsb/Save/{gateway}
 Its body contains the full fresh `plantData` snapshot plus `comfortTemp`, `reducedTemp`, and
 `dhwMode`.
 
+Runtime polling, background discovery, and write sequences share one gateway-traffic lock. A user
+command cancels optional discovery before its uncached read and write, and its immediate state
+refresh does not start another slow discovery pass. The uncached pre-write read retries one
+transient Remocon `Communication error`; write requests themselves are not automatically retried.
+
 A heating-zone mode uses:
 
 ```text

@@ -4,6 +4,13 @@ All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
 ## Unreleased
 
+## 0.3.9
+
+- Serialize polling, optional discovery, and all heating/DHW writes at the gateway boundary so
+  back-to-back control changes cannot collide with background controller requests.
+- Cancel in-flight optional discovery before a user command, keep write-triggered refreshes focused
+  on core state, and retry one transient `Communication error` during the safe pre-write read.
+
 ## 0.3.8
 
 - Classify all writable comfort and reduced setpoints as Home Assistant temperature numbers while

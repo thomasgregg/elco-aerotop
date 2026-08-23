@@ -220,12 +220,16 @@ changes. Sending an incomplete or stale request can be ignored by the controller
 companion value. Every write therefore follows this sequence:
 
 1. Acquire a per-device command lock.
-2. Fetch uncached plant and zone data.
-3. Validate the requested value against current gateway limits or allowed options.
-4. Enforce the relationship between comfort and reduced temperatures.
-5. Preserve all unchanged companion values required by the endpoint.
-6. Send one typed command through the dedicated Remocon endpoint.
-7. Refresh Home Assistant state from Remocon.
+2. Stop optional background discovery and acquire the shared gateway-traffic lock.
+3. Fetch uncached plant and zone data, retrying one transient communication failure.
+4. Validate the requested value against current gateway limits or allowed options.
+5. Enforce the relationship between comfort and reduced temperatures.
+6. Preserve all unchanged companion values required by the endpoint.
+7. Send one typed command through the dedicated Remocon endpoint.
+8. Refresh core Home Assistant state without launching slow discovery behind the write.
+
+Polling and optional discovery use the same gateway-traffic lock. Optional discovery releases it
+between requests so a user command can proceed without overlapping controller traffic.
 
 The native and advanced controls are two views of those same validated values:
 
