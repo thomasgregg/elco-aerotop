@@ -41,8 +41,6 @@ The integration uses the structured JSON endpoints behind Remocon.net. It is a *
 integration, so it requires internet access and a working Remocon.net account; it does not connect
 directly to the heat pump over the local network.
 
-![ELCO Aerotop heating and hot-water dashboard in Home Assistant](docs/images/home-assistant-dashboard.png)
-
 ## What you can do
 
 | Use case | Home Assistant experience |
