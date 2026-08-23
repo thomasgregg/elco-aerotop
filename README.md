@@ -28,7 +28,6 @@
 - [Diagnostics and privacy](#diagnostics-and-privacy)
 - [Troubleshooting](#troubleshooting)
 - [Compatibility](#compatibility)
-- [Roadmap](#roadmap)
 - [Development](#development)
 
 ## Overview
@@ -40,6 +39,8 @@ without having to open the Remocon website.
 The integration uses the structured JSON endpoints behind Remocon.net. It is a **cloud-polling**
 integration, so it requires internet access and a working Remocon.net account; it does not connect
 directly to the heat pump over the local network.
+
+![ELCO Aerotop heating and hot-water dashboard in Home Assistant](docs/images/home-assistant-dashboard.png)
 
 ## What you can do
 
@@ -353,14 +354,6 @@ established.
 When reporting a working or non-working model, include the exact Aerotop model, gateway type,
 firmware version if known, number of heating zones, and which entities were returned. Do not post
 credentials, gateway IDs, serial numbers, or unredacted payloads.
-
-## Roadmap
-
-- Real-gateway validation across additional Aerotop models and zone configurations
-- Read-only schedule entities after weekly-plan presentation semantics are finalized
-- Additional predictive-maintenance entities after more non-empty real responses are contributed
-- Expanded anonymized real-gateway fixtures across models and firmware versions
-- Additional translations
 
 ## Development
 
