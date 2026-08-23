@@ -210,12 +210,21 @@ companion value. Every write therefore follows this sequence:
 
 1. Acquire a per-device command lock.
 2. Stop optional background discovery and acquire the shared gateway-traffic lock.
-3. Fetch uncached plant and zone data, retrying one transient communication failure.
+3. Fetch uncached state only for the affected zone, or one zone plus plant state for a DHW change.
 4. Validate the requested value against current gateway limits or allowed options.
 5. Enforce the relationship between comfort and reduced temperatures.
 6. Preserve all unchanged companion values required by the endpoint.
-7. Send one typed command through the dedicated Remocon endpoint.
-8. Refresh core Home Assistant state without launching slow discovery behind the write.
+7. Send the typed command once through the dedicated Remocon endpoint. An explicit `401`/`403`
+   rejection may renew the session and replay once because the unauthenticated request was rejected.
+8. Never resend a command after a timeout, disconnect, or ambiguous server failure. When Remocon
+   permits another request, perform one uncached read to determine whether the command took effect.
+9. Refresh core Home Assistant state without launching slow discovery behind the write.
+
+If the verification read confirms the requested values, Home Assistant treats the command as
+successful. If it confirms old values, the command reports that it was not applied. If verification
+also fails—or Remocon supplies `Retry-After`—the integration reports that the outcome is unknown
+and asks the user to check the controller or official application. This avoids duplicate writes
+while still recovering automatically from a lost success response.
 
 Polling and optional discovery use the same gateway-traffic lock. Optional discovery releases it
 between requests so a user command can proceed without overlapping controller traffic.
@@ -255,11 +264,27 @@ captured and tested.
 - Writable native, number, and select entities are omitted if Remocon does not provide enough
   information to use them safely. Modes that a particular gateway does not offer are omitted from
   that entity's supported mode list.
-- Authentication expiry triggers one controlled login retry.
+- Authentication expiry triggers one controlled login and request replay. A second authentication
+  rejection starts Home Assistant's reauthentication flow.
 - Rejected credentials start Home Assistant's reauthentication flow.
-- Communication failures mark coordinator-backed entities unavailable until a later poll succeeds.
-- Remocon requests allow up to 70 seconds because some valid gateway responses take close to a
-  minute; independent setup metadata calls run concurrently to avoid multiplying that delay.
+- A complete multi-zone snapshot is accepted only when every requested zone succeeds; partial data
+  from a failed attempt is discarded.
+- Core reads immediately retry once after a fast transport interruption, the controller's
+  `Communication error`, or HTTP `408`, `500`, `502`, `503`, or `504`. Full timeouts, TLS/certificate
+  failures, authentication errors, rate limits, and permanent response errors are not immediately
+  retried.
+- After a failed core refresh, Home Assistant schedules recovery after 60 seconds, then 5 minutes,
+  then 15 minutes, and finally the configured polling interval. Each delay is capped at the normal
+  interval, so a short user-selected interval is never made slower by the backoff.
+- HTTP `Retry-After` is honored for rate limits and temporary service failures; a rate limit without
+  a usable delay defaults to 5 minutes. Parsed server delays are bounded to one day.
+- Each HTTP request has a 15-second connection phase, a 65-second response-read phase, and a
+  70-second total limit because valid gateways can take close to a minute. A complete `GetData`
+  operation has one shared budget of 70 seconds per requested zone, so restarting a failed
+  multi-zone snapshot never doubles its maximum duration.
+- Deferred optional discovery stops early on a connection/timeout or rate limit, and after two
+  consecutive gateway-level `502`–`504` failures. It resumes later without making core heating and
+  hot-water entities unavailable.
 
 ## Diagnostics and privacy
 

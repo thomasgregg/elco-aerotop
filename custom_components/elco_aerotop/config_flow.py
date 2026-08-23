@@ -12,7 +12,12 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
-from .api import ElcoApiClient, ElcoAuthenticationError, ElcoConnectionError
+from .api import (
+    ElcoApiClient,
+    ElcoAuthenticationError,
+    ElcoConnectionError,
+    ElcoResponseError,
+)
 from .const import (
     CONF_BASE_URL,
     CONF_GATEWAY_ID,
@@ -72,7 +77,7 @@ class ElcoAerotopConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 await self._validate(user_input)
             except ElcoAuthenticationError:
                 errors["base"] = "invalid_auth"
-            except ElcoConnectionError as err:
+            except (ElcoConnectionError, ElcoResponseError) as err:
                 _LOGGER.debug("Unable to connect to Remocon during setup: %s", err)
                 errors["base"] = "cannot_connect"
             except Exception:  # noqa: BLE001 - config flows must turn unknown API errors into UI errors
@@ -107,7 +112,7 @@ class ElcoAerotopConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 await self._validate(candidate)
             except ElcoAuthenticationError:
                 errors["base"] = "invalid_auth"
-            except ElcoConnectionError as err:
+            except (ElcoConnectionError, ElcoResponseError) as err:
                 _LOGGER.debug("Unable to connect to Remocon during reauthentication: %s", err)
                 errors["base"] = "cannot_connect"
             else:

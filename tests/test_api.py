@@ -3,13 +3,28 @@
 from __future__ import annotations
 
 from collections import deque
+from importlib import import_module
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
+from aiohttp import ClientConnectionError
 from yarl import URL
 
-from custom_components.elco_aerotop.api import ElcoApiClient, ElcoAuthenticationError
-from custom_components.elco_aerotop.const import REQUEST_TIMEOUT
+from custom_components.elco_aerotop.api import (
+    ElcoApiClient,
+    ElcoAuthenticationError,
+    ElcoConnectionError,
+    ElcoResponseError,
+    _retry_after_seconds,
+)
+from custom_components.elco_aerotop.const import (
+    GET_DATA_PATH,
+    REQUEST_TIMEOUT,
+    SET_TEMPERATURE_PATH,
+)
+
+api_module = import_module("custom_components.elco_aerotop.api")
 
 
 class FakeCookieJar:
@@ -27,10 +42,12 @@ class FakeResponse:
         status: int = 200,
         json_data: Any = None,
         text_data: str = "",
+        headers: dict[str, str] | None = None,
     ) -> None:
         self.status = status
         self._json_data = json_data
         self._text_data = text_data
+        self.headers = headers or {}
 
     async def __aenter__(self):
         return self
@@ -48,22 +65,36 @@ class FakeResponse:
 
 
 class FakeSession:
-    def __init__(self, responses: list[FakeResponse]) -> None:
+    def __init__(self, responses: list[FakeResponse | Exception]) -> None:
         self.responses = deque(responses)
         self.cookie_jar = FakeCookieJar()
         self.calls: list[tuple[str, str, dict[str, Any]]] = []
 
+    def _next_response(self) -> FakeResponse:
+        response = self.responses.popleft()
+        if isinstance(response, Exception):
+            raise response
+        return response
+
     async def get(self, url: str, **kwargs) -> FakeResponse:
         self.calls.append(("GET", url, kwargs))
-        return self.responses.popleft()
+        return self._next_response()
 
     async def post(self, url: str, **kwargs) -> FakeResponse:
         self.calls.append(("POST", url, kwargs))
-        return self.responses.popleft()
+        return self._next_response()
 
     async def request(self, method: str, url: str, **kwargs) -> FakeResponse:
         self.calls.append((method, url, kwargs))
-        return self.responses.popleft()
+        return self._next_response()
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("-10", 1), ("999999", 86400), ("nan", None), ("invalid", None)],
+)
+def test_retry_after_is_validated_and_bounded(value: str, expected: float | None) -> None:
+    assert _retry_after_seconds(FakeResponse(headers={"Retry-After": value})) == expected
 
 
 def login_responses() -> list[FakeResponse]:
@@ -146,6 +177,219 @@ async def test_get_data_parses_plant_and_zone() -> None:
     assert data.zones[1].comfort_temperature.value == 21
     assert data.get_data_responses == [get_data_payload()]
     assert session.calls[-1][2]["json"]["useCache"] is False
+
+
+@pytest.mark.asyncio
+async def test_multi_zone_read_applies_full_timeout_to_every_request() -> None:
+    session = FakeSession(
+        [
+            *login_responses(),
+            FakeResponse(json_data=get_data_payload()),
+            FakeResponse(json_data=get_data_payload()),
+        ]
+    )
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+
+    await client.async_get_data([1, 2])
+
+    get_data_path = GET_DATA_PATH.format(gateway_id="GATEWAY")
+    get_data_calls = [call for call in session.calls if call[1].endswith(get_data_path)]
+    assert [call[2]["timeout"].total for call in get_data_calls] == [
+        REQUEST_TIMEOUT,
+        REQUEST_TIMEOUT,
+    ]
+    assert [call[2]["json"]["useCache"] for call in get_data_calls] == [False, True]
+
+
+@pytest.mark.asyncio
+async def test_core_read_reauthenticates_and_replays_once() -> None:
+    session = FakeSession(
+        [
+            *login_responses(),
+            FakeResponse(status=401),
+            *login_responses(),
+            FakeResponse(json_data=get_data_payload()),
+        ]
+    )
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+
+    data = await client.async_get_data([1], use_cache=False)
+
+    get_data_path = GET_DATA_PATH.format(gateway_id="GATEWAY")
+    get_data_calls = [call for call in session.calls if call[1].endswith(get_data_path)]
+    assert data.plant.outside_temperature == 5.5
+    assert len(get_data_calls) == 2
+    assert get_data_calls[0][2]["json"] == get_data_calls[1][2]["json"]
+    assert [method for method, _url, _kwargs in session.calls] == [
+        "GET",
+        "POST",
+        "POST",
+        "GET",
+        "POST",
+        "POST",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_core_read_propagates_second_authentication_failure() -> None:
+    session = FakeSession(
+        [
+            *login_responses(),
+            FakeResponse(status=401),
+            *login_responses(),
+            FakeResponse(status=401),
+        ]
+    )
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+
+    with pytest.raises(ElcoAuthenticationError, match="session expired"):
+        await client.async_get_data([1])
+
+    get_data_path = GET_DATA_PATH.format(gateway_id="GATEWAY")
+    assert sum(call[1].endswith(get_data_path) for call in session.calls) == 2
+    assert client._authenticated is False
+
+
+@pytest.mark.asyncio
+async def test_core_read_retries_one_fast_connection_failure(monkeypatch) -> None:
+    session = FakeSession(
+        [
+            *login_responses(),
+            ClientConnectionError("connection lost"),
+            FakeResponse(json_data=get_data_payload()),
+        ]
+    )
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+    sleep = AsyncMock()
+    monkeypatch.setattr(api_module.asyncio, "sleep", sleep)
+
+    data = await client.async_get_data([1])
+
+    get_data_path = GET_DATA_PATH.format(gateway_id="GATEWAY")
+    assert data.plant.outside_temperature == 5.5
+    assert sum(call[1].endswith(get_data_path) for call in session.calls) == 2
+    sleep.assert_awaited_once_with(1)
+
+
+@pytest.mark.asyncio
+async def test_multi_zone_retry_restarts_and_returns_only_complete_snapshot(monkeypatch) -> None:
+    session = FakeSession(
+        [
+            *login_responses(),
+            FakeResponse(json_data=get_data_payload()),
+            FakeResponse(status=503),
+            FakeResponse(json_data=get_data_payload()),
+            FakeResponse(json_data=get_data_payload()),
+        ]
+    )
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+    sleep = AsyncMock()
+    monkeypatch.setattr(api_module.asyncio, "sleep", sleep)
+
+    data = await client.async_get_data([1, 2])
+
+    get_data_path = GET_DATA_PATH.format(gateway_id="GATEWAY")
+    calls = [call for call in session.calls if call[1].endswith(get_data_path)]
+    assert [call[2]["json"]["zone"] for call in calls] == [1, 2, 1, 2]
+    assert list(data.zones) == [1, 2]
+    sleep.assert_awaited_once_with(1)
+
+
+@pytest.mark.asyncio
+async def test_core_read_does_not_start_retry_without_operation_budget(monkeypatch) -> None:
+    client = ElcoApiClient(FakeSession([]), "user", "pass", "gateway", "https://example.test")
+    first_error = ElcoConnectionError("connection lost", retryable=True)
+    read_once = AsyncMock(side_effect=first_error)
+    client._async_get_data_once = read_once
+    monkeypatch.setattr(api_module, "REQUEST_TIMEOUT", 0.01)
+
+    with pytest.raises(ElcoConnectionError) as raised:
+        await client.async_get_data([1])
+
+    assert raised.value is first_error
+    read_once.assert_awaited_once_with([1], use_cache=True)
+
+
+@pytest.mark.asyncio
+async def test_core_read_does_not_retry_full_timeout(monkeypatch) -> None:
+    session = FakeSession([*login_responses(), TimeoutError()])
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+    sleep = AsyncMock()
+    monkeypatch.setattr(api_module.asyncio, "sleep", sleep)
+
+    with pytest.raises(ElcoConnectionError, match="Unable to communicate with Remocon") as raised:
+        await client.async_get_data([1])
+
+    get_data_path = GET_DATA_PATH.format(gateway_id="GATEWAY")
+    assert sum(call[1].endswith(get_data_path) for call in session.calls) == 1
+    assert raised.value.timed_out is True
+    sleep.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [408, 500, 502, 503, 504])
+async def test_core_read_retries_transient_http_failure_once(monkeypatch, status: int) -> None:
+    session = FakeSession(
+        [
+            *login_responses(),
+            FakeResponse(status=status),
+            FakeResponse(status=status),
+        ]
+    )
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+    sleep = AsyncMock()
+    monkeypatch.setattr(api_module.asyncio, "sleep", sleep)
+
+    with pytest.raises(ElcoResponseError, match=rf"returned HTTP {status}$") as raised:
+        await client.async_get_data([1])
+
+    assert raised.value.status == status
+    assert raised.value.retry_after is None
+    get_data_path = GET_DATA_PATH.format(gateway_id="GATEWAY")
+    assert sum(call[1].endswith(get_data_path) for call in session.calls) == 2
+    sleep.assert_awaited_once_with(1)
+
+
+@pytest.mark.asyncio
+async def test_core_read_preserves_retry_after_without_immediate_retry(monkeypatch) -> None:
+    session = FakeSession(
+        [
+            *login_responses(),
+            FakeResponse(status=429, headers={"Retry-After": "120"}),
+        ]
+    )
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+    sleep = AsyncMock()
+    monkeypatch.setattr(api_module.asyncio, "sleep", sleep)
+
+    with pytest.raises(ElcoResponseError) as raised:
+        await client.async_get_data([1])
+
+    assert str(raised.value).endswith("returned HTTP 429")
+    assert raised.value.status == 429
+    assert raised.value.retry_after == 120
+    get_data_path = GET_DATA_PATH.format(gateway_id="GATEWAY")
+    assert sum(call[1].endswith(get_data_path) for call in session.calls) == 1
+    sleep.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_core_read_retries_controller_communication_error(monkeypatch) -> None:
+    session = FakeSession(
+        [
+            *login_responses(),
+            FakeResponse(json_data={"ok": False, "message": "Communication error"}),
+            FakeResponse(json_data=get_data_payload()),
+        ]
+    )
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+    sleep = AsyncMock()
+    monkeypatch.setattr(api_module.asyncio, "sleep", sleep)
+
+    data = await client.async_get_data([1], use_cache=False)
+
+    assert data.plant.outside_temperature == 5.5
+    sleep.assert_awaited_once_with(1)
 
 
 @pytest.mark.asyncio
@@ -427,6 +671,53 @@ async def test_zone_write_preserves_full_zone_state() -> None:
     assert request_body["comfort"] == 22
     assert request_body["reduced"] == 17
     assert request_body["zoneData"] == data.zones[1].raw
+
+
+@pytest.mark.asyncio
+async def test_zone_write_reauthenticates_and_replays_once_after_unauthorized() -> None:
+    session = FakeSession(
+        [
+            *login_responses(),
+            FakeResponse(json_data=get_data_payload()),
+            FakeResponse(status=401),
+            *login_responses(),
+            FakeResponse(json_data={"ok": True, "data": {}}),
+        ]
+    )
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+    data = await client.async_get_data([1], use_cache=False)
+
+    await client.async_set_zone_temperatures(data.zones[1], comfort=22, reduced=17)
+
+    write_path = SET_TEMPERATURE_PATH.format(gateway_id="GATEWAY")
+    write_calls = [call for call in session.calls if call[1].endswith(write_path)]
+    assert len(write_calls) == 2
+    assert write_calls[0][2]["json"] == write_calls[1][2]["json"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error",
+    [ClientConnectionError("connection lost"), TimeoutError()],
+    ids=["client-connection-error", "timeout"],
+)
+async def test_zone_write_transport_failure_is_not_replayed(error: Exception) -> None:
+    session = FakeSession(
+        [
+            *login_responses(),
+            FakeResponse(json_data=get_data_payload()),
+            error,
+            FakeResponse(json_data={"ok": True, "data": {}}),
+        ]
+    )
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+    data = await client.async_get_data([1], use_cache=False)
+
+    with pytest.raises(ElcoConnectionError, match="Unable to communicate with Remocon"):
+        await client.async_set_zone_temperatures(data.zones[1], comfort=22, reduced=17)
+
+    write_path = SET_TEMPERATURE_PATH.format(gateway_id="GATEWAY")
+    assert sum(call[1].endswith(write_path) for call in session.calls) == 1
 
 
 @pytest.mark.asyncio

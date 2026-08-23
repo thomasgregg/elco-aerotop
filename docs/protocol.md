@@ -117,9 +117,23 @@ Its body contains the full fresh `plantData` snapshot plus `comfortTemp`, `reduc
 
 Runtime polling, background discovery, and write sequences share one gateway-traffic lock. A user
 command cancels optional discovery before its uncached read and write, and its immediate state
-refresh does not start another slow discovery pass. Core runtime polling and the uncached pre-write
-read retry one transient Remocon `Communication error`; optional discovery and write requests are
-not automatically retried.
+refresh does not start another slow discovery pass. A zone write reads only that zone; a DHW write
+requests plant state through one known zone instead of reading every zone.
+
+`GetData` has a complete-operation deadline of 70 seconds per requested zone. Within that same
+budget, the whole snapshot restarts once after a fast non-TLS transport interruption, a controller
+`Communication error`, or HTTP `408`, `500`, `502`, `503`, or `504`. Partial multi-zone snapshots
+are discarded. Full timeouts, certificate/TLS failures, authentication failures, `Retry-After`,
+rate limits, and other response errors are not immediately retried. After the read fails, the
+coordinator requests an earlier Home Assistant refresh at 60 seconds, 5 minutes, and 15 minutes,
+then returns to the configured polling interval; server-provided `Retry-After` takes precedence.
+
+Writes are not repeated after a transport failure, timeout, HTTP `408`, or `5xx`, because the
+controller may already have accepted the command. Instead, one fresh scoped read reconciles the
+requested values. A matching read confirms success, an old value reports an unconfirmed command,
+and a failed read reports an unknown outcome. `Retry-After` suppresses that immediate reconciliation
+read. Only an explicit authentication rejection can renew the session and replay once; the rejected
+request was not accepted as an authenticated controller command.
 
 A heating-zone mode uses:
 

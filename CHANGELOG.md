@@ -2,7 +2,22 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
-## Unreleased
+## 0.3.11
+
+- Replace the single message-specific read retry with bounded resilience for complete `GetData`
+  snapshots: one immediate retry for fast transport interruptions, controller communication
+  errors, and transient HTTP failures, all within a shared multi-zone operation deadline.
+- Add phased connection/read/total timeouts, structured HTTP status and bounded `Retry-After`
+  handling, and Home Assistant recovery refreshes at 1, 5, and 15 minutes before returning to the
+  configured polling interval.
+- Scope pre-write reads to the affected zone or one plant-bearing zone. Never replay ambiguous
+  writes; reconcile them through an uncached read when allowed, and report an unknown outcome when
+  verification fails or the service requests a cooldown.
+- Stop deferred optional discovery early on global connection/timeouts, rate limits, and repeated
+  gateway failures so unsupported or unavailable endpoints cannot produce a long request queue.
+- Expand API and coordinator coverage for authentication replay boundaries, transient and
+  permanent responses, multi-zone atomicity, backoff reset/capping, optional circuits, write
+  reconciliation, and malformed or excessive server delays.
 
 ## 0.3.10
 

@@ -107,8 +107,10 @@ omitted when its probe is absent or faulty. Turn-on/off services are advertised 
 On and Off are supported. Mapping uses stable numeric codes returned by Remocon, not translated
 labels.
 
-All native writes first refresh state, validate controller-provided limits/options, serialize
-commands per device, and preserve companion values required by Remocon.
+All native writes first refresh only the required current state, validate controller-provided
+limits/options, serialize commands per device, and preserve companion values required by Remocon.
+An ambiguous transport or server failure never causes the command to be resent; an uncached read
+reconciles the result when Remocon permits another request.
 
 ## Advanced and compatibility controls
 

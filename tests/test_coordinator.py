@@ -32,7 +32,9 @@ def _install_homeassistant_stubs() -> None:
         pass
 
     class UpdateFailed(Exception):
-        pass
+        def __init__(self, *args, retry_after=None) -> None:
+            super().__init__(*args)
+            self.retry_after = retry_after
 
     class DataUpdateCoordinator:
         def __class_getitem__(cls, _item):
@@ -66,7 +68,7 @@ def _install_homeassistant_stubs() -> None:
 
 _install_homeassistant_stubs()
 
-from homeassistant.exceptions import ConfigEntryAuthFailed  # noqa: E402
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError  # noqa: E402
 from homeassistant.helpers.update_coordinator import UpdateFailed  # noqa: E402
 
 from custom_components.elco_aerotop.api import (  # noqa: E402
@@ -76,6 +78,7 @@ from custom_components.elco_aerotop.api import (  # noqa: E402
 )
 from custom_components.elco_aerotop.coordinator import (  # noqa: E402
     ElcoDataUpdateCoordinator,
+    _OptionalDiscoveryAborted,
 )
 from custom_components.elco_aerotop.models import (  # noqa: E402
     ElcoData,
@@ -89,20 +92,28 @@ class FakeHass:
         return asyncio.create_task(coro)
 
 
-def _data() -> ElcoData:
+def _data(
+    *,
+    zone_comfort: float = 23,
+    zone_reduced: float = 22,
+    zone_mode: int = 1,
+    dhw_comfort: float = 49,
+    dhw_reduced: float = 44,
+    dhw_mode: int = 1,
+) -> ElcoData:
     plant = PlantState.parse(
         {
-            "dhwComfortTemp": {"value": 49, "min": 44, "max": 55, "step": 1},
-            "dhwReducedTemp": {"value": 44, "min": 8, "max": 55, "step": 1},
-            "dhwMode": {"value": 1, "allowedOptions": [0, 1, 2]},
+            "dhwComfortTemp": {"value": dhw_comfort, "min": 44, "max": 55, "step": 1},
+            "dhwReducedTemp": {"value": dhw_reduced, "min": 8, "max": 55, "step": 1},
+            "dhwMode": {"value": dhw_mode, "allowedOptions": [0, 1, 2]},
         }
     )
     zone = ZoneState.parse(
         1,
         {
-            "chComfortTemp": {"value": 23, "min": 10, "max": 30, "step": 0.5},
-            "chReducedTemp": {"value": 22, "min": 10, "max": 30, "step": 0.5},
-            "mode": {"value": 1, "allowedOptions": [0, 1, 2, 3]},
+            "chComfortTemp": {"value": zone_comfort, "min": 10, "max": 30, "step": 0.5},
+            "chReducedTemp": {"value": zone_reduced, "min": 10, "max": 30, "step": 0.5},
+            "mode": {"value": zone_mode, "allowedOptions": [0, 1, 2, 3]},
         },
     )
     return ElcoData("GATEWAY", plant, {1: zone})
@@ -112,8 +123,14 @@ class FakeApi:
     gateway_id = "GATEWAY"
     last_features_response = None
 
-    def __init__(self, responses: list[ElcoData | Exception] | None = None) -> None:
+    def __init__(
+        self,
+        responses: list[ElcoData | Exception] | None = None,
+        *,
+        write_responses: list[Exception | None] | None = None,
+    ) -> None:
         self.responses = list(responses or [_data()])
+        self.write_responses = list(write_responses or [None])
         self.get_data_calls = 0
         self.get_data_arguments: list[tuple[list[int], bool]] = []
         self.write_calls: list[tuple[str, tuple, dict]] = []
@@ -129,14 +146,24 @@ class FakeApi:
     async def async_get_system_items(self, _features, _zones):
         return {}
 
+    def _record_write(self, name: str, args: tuple, kwargs: dict) -> None:
+        self.write_calls.append((name, args, kwargs))
+        response = (
+            self.write_responses.pop(0)
+            if len(self.write_responses) > 1
+            else self.write_responses[0]
+        )
+        if isinstance(response, Exception):
+            raise response
+
     async def async_set_dhw(self, *args, **kwargs) -> None:
-        self.write_calls.append(("dhw", args, kwargs))
+        self._record_write("dhw", args, kwargs)
 
     async def async_set_zone_temperatures(self, *args, **kwargs) -> None:
-        self.write_calls.append(("zone_temperature", args, kwargs))
+        self._record_write("zone_temperature", args, kwargs)
 
     async def async_set_zone_mode(self, *args, **kwargs) -> None:
-        self.write_calls.append(("zone_mode", args, kwargs))
+        self._record_write("zone_mode", args, kwargs)
 
 
 def _coordinator(api: FakeApi | None = None) -> ElcoDataUpdateCoordinator:
@@ -200,18 +227,119 @@ async def test_every_write_cancels_discovery_before_gateway_access(write_name, w
 
 
 @pytest.mark.asyncio
-async def test_fresh_data_retries_one_transient_communication_error(monkeypatch) -> None:
-    api = FakeApi([ElcoResponseError("Communication error"), _data()])
+@pytest.mark.parametrize(
+    "write",
+    [
+        lambda coordinator: coordinator.async_set_dhw(comfort=48),
+        lambda coordinator: coordinator.async_set_zone_temperature(1, "comfort", 24),
+        lambda coordinator: coordinator.async_set_zone_mode(1, 2),
+    ],
+    ids=["dhw", "zone-temperature", "zone-mode"],
+)
+async def test_every_pre_write_read_fetches_one_zone_uncached(write) -> None:
+    api = FakeApi([_multi_zone_data()])
     coordinator = _coordinator(api)
-    sleep = AsyncMock()
-    monkeypatch.setattr(asyncio, "sleep", sleep)
+    coordinator._zone_numbers = [1, 2]
+    coordinator.async_request_refresh = AsyncMock()
 
-    result = await coordinator._async_fresh_data()
+    await write(coordinator)
 
-    assert result == _data()
-    assert api.get_data_calls == 2
+    assert api.get_data_arguments == [([1], False)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("write", "reconciled_data"),
+    [
+        (
+            lambda coordinator: coordinator.async_set_zone_temperature(1, "comfort", 24),
+            _data(zone_comfort=24),
+        ),
+        (lambda coordinator: coordinator.async_set_dhw(comfort=48), _data(dhw_comfort=48)),
+        (lambda coordinator: coordinator.async_set_zone_mode(1, 2), _data(zone_mode=2)),
+    ],
+    ids=["zone-temperature", "dhw", "zone-mode"],
+)
+async def test_ambiguous_write_is_confirmed_by_fresh_read(write, reconciled_data) -> None:
+    api = FakeApi(
+        [_data(), reconciled_data],
+        write_responses=[ElcoConnectionError("response lost")],
+    )
+    coordinator = _coordinator(api)
+    coordinator.async_request_refresh = AsyncMock()
+
+    await write(coordinator)
+
     assert api.get_data_arguments == [([1], False), ([1], False)]
-    sleep.assert_awaited_once_with(1)
+    assert len(api.write_calls) == 1
+    coordinator.async_request_refresh.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_unconfirmed_ambiguous_write_refreshes_then_reports_failure() -> None:
+    api = FakeApi(
+        [_data(), _data()],
+        write_responses=[ElcoResponseError("server failed", status=503)],
+    )
+    coordinator = _coordinator(api)
+    coordinator.async_request_refresh = AsyncMock()
+
+    with pytest.raises(HomeAssistantError, match="was not confirmed"):
+        await coordinator.async_set_zone_temperature(1, "comfort", 24)
+
+    assert len(api.write_calls) == 1
+    coordinator.async_request_refresh.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_write_with_failed_reconciliation_reports_unknown_outcome() -> None:
+    api = FakeApi(
+        [_data(), ElcoConnectionError("reconciliation failed")],
+        write_responses=[ElcoConnectionError("response lost")],
+    )
+    coordinator = _coordinator(api)
+    coordinator.async_request_refresh = AsyncMock()
+
+    with pytest.raises(HomeAssistantError, match="may have been applied"):
+        await coordinator.async_set_zone_mode(1, 2)
+
+    assert len(api.write_calls) == 1
+    coordinator.async_request_refresh.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_write_honors_retry_after_without_reconciliation() -> None:
+    api = FakeApi(
+        [_data()],
+        write_responses=[ElcoResponseError("service unavailable", status=503, retry_after=120)],
+    )
+    coordinator = _coordinator(api)
+    coordinator.async_request_refresh = AsyncMock()
+
+    with pytest.raises(HomeAssistantError, match="requested a delay"):
+        await coordinator.async_set_zone_mode(1, 2)
+
+    assert api.get_data_calls == 1
+    assert len(api.write_calls) == 1
+    coordinator.async_request_refresh.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [None, 400], ids=["application-rejection", "http-400"])
+async def test_permanent_write_response_error_is_not_reconciled(status: int | None) -> None:
+    api = FakeApi(
+        [_data()],
+        write_responses=[ElcoResponseError("invalid request", status=status)],
+    )
+    coordinator = _coordinator(api)
+    coordinator.async_request_refresh = AsyncMock()
+
+    with pytest.raises(HomeAssistantError, match="invalid request"):
+        await coordinator.async_set_zone_mode(1, 2)
+
+    assert api.get_data_calls == 1
+    assert len(api.write_calls) == 1
+    coordinator.async_request_refresh.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -229,37 +357,46 @@ async def test_fresh_data_does_not_retry_non_transient_response_error(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_core_poll_retries_one_transient_communication_error(monkeypatch) -> None:
-    api = FakeApi([ElcoResponseError("Communication error"), _data()])
+@pytest.mark.parametrize(
+    "error",
+    [
+        ElcoAuthenticationError("Remocon session expired"),
+        ElcoConnectionError("Unable to communicate with Remocon"),
+    ],
+    ids=["authentication", "connection"],
+)
+async def test_fresh_data_does_not_retry_authentication_or_connection_errors(
+    monkeypatch,
+    error: Exception,
+) -> None:
+    api = FakeApi([error])
     coordinator = _coordinator(api)
     sleep = AsyncMock()
     monkeypatch.setattr(asyncio, "sleep", sleep)
 
-    result = await coordinator._async_update_data()
+    with pytest.raises(type(error), match=str(error)):
+        await coordinator._async_fresh_data()
 
-    assert result.plant == _data().plant
-    assert coordinator.last_successful_update == result.captured_at
-    assert api.get_data_arguments == [([1], True), ([1], True)]
-    sleep.assert_awaited_once_with(1)
+    assert api.get_data_calls == 1
+    assert api.get_data_arguments == [([1], False)]
+    sleep.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_core_poll_fails_after_two_communication_errors(monkeypatch) -> None:
-    api = FakeApi(
-        [
-            ElcoResponseError("Communication error"),
-            ElcoResponseError("Communication error"),
-        ]
-    )
+async def test_core_poll_schedules_early_recovery_after_communication_error(
+    monkeypatch,
+) -> None:
+    api = FakeApi([ElcoResponseError("Communication error")])
     coordinator = _coordinator(api)
     sleep = AsyncMock()
     monkeypatch.setattr(asyncio, "sleep", sleep)
 
-    with pytest.raises(UpdateFailed, match="Communication error"):
+    with pytest.raises(UpdateFailed, match="Communication error") as raised:
         await coordinator._async_update_data()
 
-    assert api.get_data_calls == 2
-    sleep.assert_awaited_once_with(1)
+    assert raised.value.retry_after == 60
+    assert api.get_data_calls == 1
+    sleep.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -269,9 +406,10 @@ async def test_core_poll_does_not_retry_other_response_errors(monkeypatch) -> No
     sleep = AsyncMock()
     monkeypatch.setattr(asyncio, "sleep", sleep)
 
-    with pytest.raises(UpdateFailed, match="Unsupported request"):
+    with pytest.raises(UpdateFailed, match="Unsupported request") as raised:
         await coordinator._async_update_data()
 
+    assert raised.value.retry_after is None
     assert api.get_data_calls == 1
     sleep.assert_not_awaited()
 
@@ -297,18 +435,79 @@ async def test_core_poll_does_not_retry_connection_errors(monkeypatch) -> None:
     sleep = AsyncMock()
     monkeypatch.setattr(asyncio, "sleep", sleep)
 
-    with pytest.raises(UpdateFailed, match="Unable to communicate with Remocon"):
+    with pytest.raises(UpdateFailed, match="Unable to communicate with Remocon") as raised:
         await coordinator._async_update_data()
 
+    assert raised.value.retry_after == 60
     assert api.get_data_calls == 1
     sleep.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_core_poll_restarts_complete_multi_zone_read_after_partial_failure(
-    monkeypatch,
+async def test_core_poll_uses_bounded_recovery_backoff() -> None:
+    api = FakeApi(
+        [
+            ElcoConnectionError("failure 1"),
+            ElcoConnectionError("failure 2"),
+            ElcoConnectionError("failure 3"),
+            ElcoConnectionError("failure 4"),
+        ]
+    )
+    coordinator = _coordinator(api)
+    delays = []
+
+    for _attempt in range(4):
+        with pytest.raises(UpdateFailed) as raised:
+            await coordinator._async_update_data()
+        delays.append(raised.value.retry_after)
+
+    assert delays == [60, 300, 900, 3600]
+
+
+@pytest.mark.asyncio
+async def test_successful_core_poll_resets_recovery_backoff() -> None:
+    api = FakeApi(
+        [
+            ElcoConnectionError("first failure"),
+            _data(),
+            ElcoConnectionError("failure after recovery"),
+        ]
+    )
+    coordinator = _coordinator(api)
+
+    with pytest.raises(UpdateFailed) as first_failure:
+        await coordinator._async_update_data()
+    await coordinator._async_update_data()
+    with pytest.raises(UpdateFailed) as failure_after_success:
+        await coordinator._async_update_data()
+
+    assert first_failure.value.retry_after == 60
+    assert failure_after_success.value.retry_after == 60
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "expected_delay"),
+    [
+        (ElcoResponseError("rate limited", status=429), 300),
+        (ElcoResponseError("retry later", status=503, retry_after=120), 120),
+    ],
+)
+async def test_core_poll_honors_rate_limit_delay(
+    error: ElcoResponseError,
+    expected_delay: float,
 ) -> None:
-    api = FakeApi([ElcoResponseError("Communication error"), _multi_zone_data()])
+    coordinator = _coordinator(FakeApi([error]))
+
+    with pytest.raises(UpdateFailed) as raised:
+        await coordinator._async_update_data()
+
+    assert raised.value.retry_after == expected_delay
+
+
+@pytest.mark.asyncio
+async def test_core_poll_requests_complete_multi_zone_snapshot(monkeypatch) -> None:
+    api = FakeApi([_multi_zone_data()])
     coordinator = _coordinator(api)
     coordinator._zone_numbers = [1, 2]
     sleep = AsyncMock()
@@ -317,8 +516,98 @@ async def test_core_poll_restarts_complete_multi_zone_read_after_partial_failure
     result = await coordinator._async_update_data()
 
     assert list(result.zones) == [1, 2]
-    assert api.get_data_arguments == [([1, 2], True), ([1, 2], True)]
-    sleep.assert_awaited_once_with(1)
+    assert api.get_data_arguments == [([1, 2], True)]
+    sleep.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_optional_discovery_aborts_on_connection_failure() -> None:
+    coordinator = _coordinator()
+    status = {}
+    request = AsyncMock(side_effect=ElcoConnectionError("cloud unavailable"))
+
+    with pytest.raises(_OptionalDiscoveryAborted):
+        await coordinator._async_optional_probe(
+            "probe",
+            request(),
+            status,
+            circuit_breaker=True,
+        )
+
+    assert status["probe"] == "unavailable:ElcoConnectionError"
+
+
+@pytest.mark.asyncio
+async def test_optional_discovery_aborts_on_probe_timeout() -> None:
+    coordinator = _coordinator()
+    status = {}
+
+    with pytest.raises(_OptionalDiscoveryAborted):
+        await coordinator._async_optional_probe(
+            "probe",
+            asyncio.sleep(1),
+            status,
+            timeout_seconds=0,
+            circuit_breaker=True,
+        )
+
+    assert status["probe"] == "unavailable:TimeoutError"
+
+
+@pytest.mark.asyncio
+async def test_optional_discovery_aborts_after_two_consecutive_gateway_failures() -> None:
+    coordinator = _coordinator()
+    status = {}
+
+    first = await coordinator._async_optional_probe(
+        "first",
+        AsyncMock(side_effect=ElcoResponseError("bad gateway", status=502))(),
+        status,
+        circuit_breaker=True,
+    )
+    with pytest.raises(_OptionalDiscoveryAborted):
+        await coordinator._async_optional_probe(
+            "second",
+            AsyncMock(side_effect=ElcoResponseError("unavailable", status=503))(),
+            status,
+            circuit_breaker=True,
+        )
+
+    assert first is None
+    assert status["first"] == "unavailable:ElcoResponseError"
+    assert status["second"] == "unavailable:ElcoResponseError"
+
+
+@pytest.mark.asyncio
+async def test_optional_endpoint_specific_500_does_not_open_circuit() -> None:
+    coordinator = _coordinator()
+    status = {}
+
+    for index in range(3):
+        result = await coordinator._async_optional_probe(
+            f"probe-{index}",
+            AsyncMock(side_effect=ElcoResponseError("unsupported", status=500))(),
+            status,
+            circuit_breaker=True,
+        )
+        assert result is None
+
+    assert coordinator._optional_transient_failures == 0
+
+
+@pytest.mark.asyncio
+async def test_optional_rate_limit_stops_discovery_until_retry_after() -> None:
+    coordinator = _coordinator()
+    error = ElcoResponseError("rate limited", status=429, retry_after=120)
+    refresh = AsyncMock(side_effect=_OptionalDiscoveryAborted(error))
+    coordinator._async_refresh_deferred_discovery = refresh
+    before = asyncio.get_running_loop().time()
+
+    await coordinator.async_refresh_deferred_discovery()
+    await coordinator.async_refresh_deferred_discovery()
+
+    refresh.assert_awaited_once()
+    assert coordinator._optional_retry_not_before >= before + 120
 
 
 @pytest.mark.asyncio

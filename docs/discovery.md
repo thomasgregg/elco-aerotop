@@ -35,6 +35,12 @@ diagnostic status is `deferred:background` and changes to `available`, `partiall
 error class when the background pass completes. This prevents an optional schedule or controller
 timeout from delaying Home Assistant startup.
 
+Deferred requests are serialized with core polling but release the gateway lock between probes.
+The pass stops early on a connection or probe timeout, on an HTTP rate limit, or after two
+consecutive gateway-level `502`–`504` responses. A `500` from one optional endpoint is treated as
+endpoint-specific and does not open the circuit. `Retry-After` postpones the next optional pass;
+otherwise later discovery can recover without affecting core entity availability.
+
 The schedule capture uses the BSB web application's structured `PlantTimeProgBsb/GetData` POST
 contract. The older mobile `timeProgs` route is not used because it is not the schedule source for
 BSB controllers. Annual energy history is queried independently from the cloud metering flag;

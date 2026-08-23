@@ -6,10 +6,21 @@ import asyncio
 import logging
 import re
 from copy import deepcopy
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from html import unescape
+from math import isfinite
 from typing import Any
 
-from aiohttp import ClientError, ClientResponse, ClientSession, ClientTimeout
+from aiohttp import (
+    ClientConnectorCertificateError,
+    ClientConnectorSSLError,
+    ClientError,
+    ClientResponse,
+    ClientSession,
+    ClientSSLError,
+    ClientTimeout,
+)
 from yarl import URL
 
 from .const import (
@@ -45,6 +56,13 @@ from .models import ElcoData, PlantState, ZoneState
 
 _LOGGER = logging.getLogger(__name__)
 
+_CONNECT_TIMEOUT_SECONDS = 15
+_SOCKET_READ_TIMEOUT_SECONDS = 65
+_GET_DATA_ATTEMPTS = 2
+_GET_DATA_RETRY_DELAY_SECONDS = 1
+_RETRYABLE_GET_DATA_STATUSES = frozenset({408, 500, 502, 503, 504})
+_MAX_RETRY_AFTER_SECONDS = 86400
+
 _TOKEN_RE = re.compile(
     r'name=["\']__RequestVerificationToken["\'][^>]*value=["\']([^"\']+)',
     re.IGNORECASE,
@@ -62,9 +80,72 @@ class ElcoAuthenticationError(ElcoApiError):
 class ElcoConnectionError(ElcoApiError):
     """The Remocon service could not be reached."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        timed_out: bool = False,
+        retryable: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.timed_out = timed_out
+        self.retryable = retryable
+
 
 class ElcoResponseError(ElcoApiError):
     """The Remocon service returned an unexpected response."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: int | None = None,
+        retry_after: float | None = None,
+        ambiguous: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+        self.retry_after = retry_after
+        self.ambiguous = ambiguous
+
+
+def _retry_after_seconds(response: ClientResponse) -> float | None:
+    """Return a bounded Retry-After delay from an HTTP response."""
+    value = response.headers.get("Retry-After")
+    if value is None:
+        return None
+    try:
+        seconds = float(value)
+    except ValueError:
+        try:
+            retry_at = parsedate_to_datetime(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if retry_at.tzinfo is None:
+            retry_at = retry_at.replace(tzinfo=UTC)
+        seconds = (retry_at - datetime.now(UTC)).total_seconds()
+    if not isfinite(seconds):
+        return None
+    return min(_MAX_RETRY_AFTER_SECONDS, max(1.0, seconds))
+
+
+def _is_retryable_get_data_error(error: ElcoApiError) -> bool:
+    """Return whether a failed read can be repeated immediately."""
+    if isinstance(error, ElcoConnectionError):
+        return error.retryable
+    if not isinstance(error, ElcoResponseError) or error.retry_after is not None:
+        return False
+    if error.status in _RETRYABLE_GET_DATA_STATUSES:
+        return True
+    return error.status is None and "communication error" in str(error).casefold()
+
+
+def _is_retryable_client_error(error: ClientError | TimeoutError) -> bool:
+    """Return whether an immediate repeat can plausibly recover a transport failure."""
+    return not isinstance(
+        error,
+        (TimeoutError, ClientSSLError, ClientConnectorSSLError, ClientConnectorCertificateError),
+    )
 
 
 class ElcoApiClient:
@@ -87,7 +168,12 @@ class ElcoApiClient:
         self._auth_lock = asyncio.Lock()
         self._mobile_token: str | None = None
         self._mobile_auth_lock = asyncio.Lock()
-        self._timeout = ClientTimeout(total=REQUEST_TIMEOUT)
+        self._timeout = ClientTimeout(
+            total=REQUEST_TIMEOUT,
+            connect=_CONNECT_TIMEOUT_SECONDS,
+            sock_connect=_CONNECT_TIMEOUT_SECONDS,
+            sock_read=_SOCKET_READ_TIMEOUT_SECONDS,
+        )
         self.last_features_response: Any = None
 
     @property
@@ -115,8 +201,14 @@ class ElcoApiClient:
                     timeout=self._timeout,
                 )
                 async with response:
+                    if response.status in (401, 403):
+                        raise ElcoAuthenticationError("Remocon login was rejected")
                     if response.status != 200:
-                        raise ElcoConnectionError(f"Login page returned HTTP {response.status}")
+                        raise ElcoResponseError(
+                            f"Login page returned HTTP {response.status}",
+                            status=response.status,
+                            retry_after=_retry_after_seconds(response),
+                        )
                     html = await response.text()
 
                 token_match = _TOKEN_RE.search(html)
@@ -153,20 +245,31 @@ class ElcoApiClient:
                 raise
             except (ClientError, TimeoutError) as err:
                 self._authenticated = False
-                raise ElcoConnectionError("Unable to connect to Remocon") from err
+                raise ElcoConnectionError(
+                    "Unable to connect to Remocon",
+                    timed_out=isinstance(err, TimeoutError),
+                    retryable=_is_retryable_client_error(err),
+                ) from err
 
     async def _decode_json(self, response: ClientResponse, operation: str) -> Any:
         if response.status in (401, 403):
             raise ElcoAuthenticationError("Remocon session expired")
         if response.status >= 400:
-            raise ElcoResponseError(f"{operation} returned HTTP {response.status}")
+            raise ElcoResponseError(
+                f"{operation} returned HTTP {response.status}",
+                status=response.status,
+                retry_after=_retry_after_seconds(response),
+            )
         try:
             payload = await response.json(content_type=None)
         except (ValueError, TypeError) as err:
             text = await response.text()
             if "account/login" in text.lower() or 'id="loginform"' in text.lower():
                 raise ElcoAuthenticationError("Remocon session expired") from err
-            raise ElcoResponseError(f"{operation} did not return JSON") from err
+            raise ElcoResponseError(
+                f"{operation} did not return JSON",
+                ambiguous=True,
+            ) from err
         return payload
 
     async def _request_payload(
@@ -191,7 +294,11 @@ class ElcoApiClient:
             async with response:
                 payload = await self._decode_json(response, path)
             if isinstance(payload, dict) and payload.get("ok") is False:
-                raise ElcoResponseError(str(payload.get("message") or f"{path} failed"))
+                message = str(payload.get("message") or f"{path} failed")
+                raise ElcoResponseError(
+                    message,
+                    ambiguous="communication error" in message.casefold(),
+                )
             return payload
         except ElcoAuthenticationError:
             if invalidate_auth:
@@ -209,7 +316,11 @@ class ElcoApiClient:
         except ElcoApiError:
             raise
         except (ClientError, TimeoutError) as err:
-            raise ElcoConnectionError(f"Unable to communicate with Remocon: {path}") from err
+            raise ElcoConnectionError(
+                f"Unable to communicate with Remocon: {path}",
+                timed_out=isinstance(err, TimeoutError),
+                retryable=_is_retryable_client_error(err),
+            ) from err
 
     async def _request_json(
         self,
@@ -226,7 +337,10 @@ class ElcoApiClient:
             retry_auth=retry_auth,
         )
         if not isinstance(payload, dict):
-            raise ElcoResponseError(f"{path} returned an unexpected payload")
+            raise ElcoResponseError(
+                f"{path} returned an unexpected payload",
+                ambiguous=True,
+            )
         return payload
 
     async def _async_mobile_login(self) -> None:
@@ -252,7 +366,11 @@ class ElcoApiClient:
                 raise
             except (ClientError, TimeoutError) as err:
                 self._mobile_token = None
-                raise ElcoConnectionError("Unable to connect to the Remocon mobile API") from err
+                raise ElcoConnectionError(
+                    "Unable to connect to the Remocon mobile API",
+                    timed_out=isinstance(err, TimeoutError),
+                    retryable=_is_retryable_client_error(err),
+                ) from err
 
     async def _request_mobile_payload(
         self,
@@ -280,7 +398,11 @@ class ElcoApiClient:
         except ElcoApiError:
             raise
         except (ClientError, TimeoutError) as err:
-            raise ElcoConnectionError(f"Unable to communicate with Remocon: {path}") from err
+            raise ElcoConnectionError(
+                f"Unable to communicate with Remocon: {path}",
+                timed_out=isinstance(err, TimeoutError),
+                retryable=_is_retryable_client_error(err),
+            ) from err
 
     async def async_get_features(self) -> dict[str, Any]:
         """Fetch the complete capability map returned for this gateway."""
@@ -547,8 +669,49 @@ class ElcoApiClient:
         *,
         use_cache: bool = True,
     ) -> ElcoData:
-        """Fetch plant and zone state."""
+        """Fetch one complete plant/zone snapshot within a bounded deadline."""
         zones_to_fetch = zone_numbers or await self.async_get_zone_numbers()
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + REQUEST_TIMEOUT * max(1, len(zones_to_fetch))
+        last_error: ElcoApiError | None = None
+
+        for attempt in range(_GET_DATA_ATTEMPTS):
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                break
+            try:
+                async with asyncio.timeout(remaining):
+                    return await self._async_get_data_once(zones_to_fetch, use_cache=use_cache)
+            except TimeoutError as err:
+                raise ElcoConnectionError(
+                    "GetData operation exceeded its overall time limit",
+                    timed_out=True,
+                ) from err
+            except (ElcoConnectionError, ElcoResponseError) as err:
+                last_error = err
+                if (
+                    attempt == _GET_DATA_ATTEMPTS - 1
+                    or not _is_retryable_get_data_error(err)
+                    or deadline - loop.time() <= _GET_DATA_RETRY_DELAY_SECONDS
+                ):
+                    raise
+                _LOGGER.debug("Retrying complete Remocon GetData after: %s", err)
+                await asyncio.sleep(_GET_DATA_RETRY_DELAY_SECONDS)
+
+        if last_error is not None:
+            raise last_error
+        raise ElcoConnectionError(
+            "GetData operation exceeded its overall time limit",
+            timed_out=True,
+        )
+
+    async def _async_get_data_once(
+        self,
+        zones_to_fetch: list[int],
+        *,
+        use_cache: bool,
+    ) -> ElcoData:
+        """Fetch plant and zone state once without retrying a partial snapshot."""
         plant_raw: dict[str, Any] | None = None
         zones: dict[int, ZoneState] = {}
         raw_responses: list[dict[str, Any]] = []

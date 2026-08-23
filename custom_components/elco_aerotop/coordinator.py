@@ -40,8 +40,18 @@ _LOGGER = logging.getLogger(__name__)
 _SLOW_DISCOVERY_INTERVAL_SECONDS = 3600
 _OPTIONAL_PROBE_TIMEOUT = 65
 _BSB_PROBE_TIMEOUT = 30
-_GET_DATA_ATTEMPTS = 2
-_GET_DATA_RETRY_DELAY_SECONDS = 1
+_TRANSIENT_RECOVERY_DELAYS = (60, 300, 900)
+_DEFAULT_RATE_LIMIT_DELAY = 300
+_TRANSIENT_RESPONSE_STATUSES = frozenset({408, 500, 502, 503, 504})
+_OPTIONAL_CIRCUIT_STATUSES = frozenset({502, 503, 504})
+
+
+class _OptionalDiscoveryAborted(Exception):
+    """Raised internally to stop optional requests after a global failure."""
+
+    def __init__(self, error: Exception) -> None:
+        super().__init__(str(error))
+        self.error = error
 
 
 class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
@@ -63,6 +73,7 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
             always_update=False,
         )
         self.api = api
+        self._scan_interval = scan_interval
         self._features: dict[str, Any] | None = None
         self._zone_numbers: list[int] | None = None
         self._command_lock = asyncio.Lock()
@@ -77,6 +88,9 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         self._initial_discovery_complete = False
         self._background_discovery_task: asyncio.Task[None] | None = None
         self._skip_slow_discovery_once = False
+        self._transient_failure_count = 0
+        self._optional_transient_failures = 0
+        self._optional_retry_not_before = 0.0
         self.last_successful_update: datetime | None = None
         self._successful_update_listeners: set[Callable[[], None]] = set()
 
@@ -105,6 +119,7 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         status: dict[str, str],
         *,
         timeout_seconds: int = _OPTIONAL_PROBE_TIMEOUT,
+        circuit_breaker: bool = False,
     ) -> Any:
         """Run an optional read without making the main coordinator unavailable."""
         try:
@@ -113,9 +128,25 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         except Exception as err:  # An optional endpoint must never disable core polling.
             status[name] = f"unavailable:{type(err).__name__}"
             _LOGGER.debug("Optional Remocon probe %s is unavailable: %s", name, err)
+            if circuit_breaker and self._optional_failure_should_abort(err):
+                raise _OptionalDiscoveryAborted(err) from err
             return None
+        if circuit_breaker:
+            self._optional_transient_failures = 0
         status[name] = "available"
         return result
+
+    def _optional_failure_should_abort(self, error: Exception) -> bool:
+        """Return whether a global failure should stop deferred discovery."""
+        if isinstance(error, (ElcoConnectionError, TimeoutError)):
+            return True
+        if isinstance(error, ElcoResponseError) and error.status == 429:
+            return True
+        if isinstance(error, ElcoResponseError) and error.status in _OPTIONAL_CIRCUIT_STATUSES:
+            self._optional_transient_failures += 1
+            return self._optional_transient_failures >= 2
+        self._optional_transient_failures = 0
+        return False
 
     async def _async_serialized_optional_probe(
         self,
@@ -132,6 +163,7 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
                 request(),
                 status,
                 timeout_seconds=timeout_seconds,
+                circuit_breaker=True,
             )
 
     def _schedule_programs(self, data: ElcoData) -> tuple[list[str], bool]:
@@ -252,6 +284,23 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         )
 
     async def async_refresh_deferred_discovery(self, *, refresh_core: bool = False) -> None:
+        """Refresh optional data unless a server backoff is still active."""
+        loop = asyncio.get_running_loop()
+        if loop.time() < self._optional_retry_not_before:
+            return
+        self._optional_transient_failures = 0
+        try:
+            await self._async_refresh_deferred_discovery(refresh_core=refresh_core)
+        except _OptionalDiscoveryAborted as err:
+            source = err.error
+            if isinstance(source, ElcoResponseError) and (
+                source.status == 429 or source.retry_after is not None
+            ):
+                delay = source.retry_after or _DEFAULT_RATE_LIMIT_DELAY
+                self._optional_retry_not_before = loop.time() + delay
+            _LOGGER.debug("Deferred Remocon discovery stopped after: %s", source)
+
+    async def _async_refresh_deferred_discovery(self, *, refresh_core: bool = False) -> None:
         """Refresh slow read-only families after config-entry setup has completed."""
         async with self._discovery_lock:
             if self.data is None or self._features is None:
@@ -421,6 +470,23 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         if self._background_discovery_task is not None:
             self._background_discovery_task.cancel()
 
+    def _next_transient_recovery_delay(self) -> float:
+        """Return a bounded recovery delay and advance the failure count."""
+        index = self._transient_failure_count
+        self._transient_failure_count += 1
+        if index < len(_TRANSIENT_RECOVERY_DELAYS):
+            delay = _TRANSIENT_RECOVERY_DELAYS[index]
+        else:
+            delay = self._scan_interval
+        return float(min(self._scan_interval, delay))
+
+    @staticmethod
+    def _is_transient_response_error(error: ElcoResponseError) -> bool:
+        """Return whether a response failure should receive an earlier poll."""
+        return error.status in _TRANSIENT_RESPONSE_STATUSES or (
+            error.status is None and "communication error" in str(error).casefold()
+        )
+
     async def _async_update_data(self) -> ElcoData:
         try:
             start_slow_discovery = False
@@ -429,7 +495,7 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
                     self._features = await self.api.async_get_features()
                 if self._zone_numbers is None:
                     self._zone_numbers = await self.api.async_get_zone_numbers(self._features)
-                data = await self._async_get_data_with_retry(use_cache=True)
+                data = await self.api.async_get_data(self._zone_numbers, use_cache=True)
 
                 status = dict(self._slow_discovery.probe_status)
                 system_items = await self._async_optional_probe(
@@ -459,6 +525,7 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
                 probe_status=status,
             )
             updated_data = replace(data, discovery=discovery)
+            self._transient_failure_count = 0
             self.last_successful_update = data.captured_at
             self._notify_successful_update_listeners()
             if start_slow_discovery:
@@ -467,33 +534,111 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         except ElcoAuthenticationError as err:
             raise ConfigEntryAuthFailed from err
         except ElcoConnectionError as err:
+            raise UpdateFailed(
+                str(err),
+                retry_after=self._next_transient_recovery_delay(),
+            ) from err
+        except ElcoResponseError as err:
+            if err.status == 429 or err.retry_after is not None:
+                raise UpdateFailed(
+                    str(err),
+                    retry_after=err.retry_after or _DEFAULT_RATE_LIMIT_DELAY,
+                ) from err
+            if self._is_transient_response_error(err):
+                raise UpdateFailed(
+                    str(err),
+                    retry_after=self._next_transient_recovery_delay(),
+                ) from err
             raise UpdateFailed(str(err)) from err
         except ElcoApiError as err:
             raise UpdateFailed(str(err)) from err
 
-    async def _async_get_data_with_retry(self, *, use_cache: bool) -> ElcoData:
-        """Fetch core plant data, retrying one transient controller response."""
-        assert self._zone_numbers is not None
-        for attempt in range(_GET_DATA_ATTEMPTS):
-            try:
-                return await self.api.async_get_data(
-                    self._zone_numbers,
-                    use_cache=use_cache,
-                )
-            except ElcoResponseError as err:
-                if (
-                    "communication error" not in str(err).casefold()
-                    or attempt == _GET_DATA_ATTEMPTS - 1
-                ):
-                    raise
-                _LOGGER.debug("Retrying Remocon GetData after a communication error")
-                await asyncio.sleep(_GET_DATA_RETRY_DELAY_SECONDS)
-        raise RuntimeError("Remocon GetData retry loop exhausted")
-
-    async def _async_fresh_data(self) -> ElcoData:
+    async def _async_fresh_data(self, zone_numbers: list[int] | None = None) -> ElcoData:
+        """Read uncached state for the requested zones."""
         if self._zone_numbers is None:
             self._zone_numbers = await self.api.async_get_zone_numbers()
-        return await self._async_get_data_with_retry(use_cache=False)
+        requested_zones = zone_numbers or self._zone_numbers
+        return await self.api.async_get_data(requested_zones, use_cache=False)
+
+    async def _async_fresh_plant_data(self) -> ElcoData:
+        """Read fresh plant state using one known zone request."""
+        if self._zone_numbers is None:
+            self._zone_numbers = await self.api.async_get_zone_numbers()
+        return await self._async_fresh_data([self._zone_numbers[0]])
+
+    @staticmethod
+    def _is_ambiguous_write_error(error: ElcoApiError) -> bool:
+        """Return whether a failed write may still have reached the controller."""
+        if isinstance(error, ElcoConnectionError):
+            return True
+        return isinstance(error, ElcoResponseError) and (
+            error.ambiguous
+            or error.status == 408
+            or (error.status is not None and error.status >= 500)
+        )
+
+    @staticmethod
+    def _zone_temperatures_match(
+        data: ElcoData,
+        zone_number: int,
+        comfort: float,
+        reduced: float,
+    ) -> bool:
+        zone = data.zones.get(zone_number)
+        return zone is not None and (
+            zone.comfort_temperature.value == comfort and zone.reduced_temperature.value == reduced
+        )
+
+    @staticmethod
+    def _dhw_settings_match(
+        data: ElcoData,
+        comfort: float,
+        reduced: float,
+        mode: int,
+    ) -> bool:
+        plant = data.plant
+        return (
+            plant.dhw_comfort_temperature.value == comfort
+            and plant.dhw_reduced_temperature.value == reduced
+            and plant.dhw_mode.value == mode
+        )
+
+    @staticmethod
+    def _zone_mode_matches(data: ElcoData, zone_number: int, mode: int) -> bool:
+        zone = data.zones.get(zone_number)
+        return zone is not None and zone.mode.value == mode
+
+    async def _async_write_with_reconciliation(
+        self,
+        *,
+        write: Callable[[], Awaitable[None]],
+        reconcile: Callable[[], Awaitable[ElcoData]],
+        matches: Callable[[ElcoData], bool],
+        description: str,
+    ) -> HomeAssistantError | None:
+        """Run one write and verify state instead of replaying an ambiguous failure."""
+        try:
+            await write()
+        except (ElcoConnectionError, ElcoResponseError) as err:
+            if not self._is_ambiguous_write_error(err):
+                raise
+            if isinstance(err, ElcoResponseError) and err.retry_after is not None:
+                raise HomeAssistantError(
+                    f"{description} may have been applied, but Remocon requested a delay before "
+                    "another request; check the controller or official application"
+                ) from err
+            try:
+                reconciled = await reconcile()
+            except ElcoApiError:
+                raise HomeAssistantError(
+                    f"{description} may have been applied, but its result could not be verified; "
+                    "check the controller or official application"
+                ) from err
+            if matches(reconciled):
+                _LOGGER.debug("Confirmed %s after an ambiguous Remocon response", description)
+                return None
+            return HomeAssistantError(f"{description} was not confirmed by a fresh controller read")
+        return None
 
     async def _async_refresh_after_write(self) -> None:
         """Refresh core state without launching optional discovery traffic."""
@@ -514,7 +659,7 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
             try:
                 await self._async_cancel_deferred_discovery()
                 async with self._gateway_lock:
-                    fresh = await self._async_fresh_data()
+                    fresh = await self._async_fresh_data([zone_number])
                     zone = fresh.zones[zone_number]
                     comfort = zone.comfort_temperature.value
                     reduced = zone.reduced_temperature.value
@@ -526,12 +671,24 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
                         reduced = value
                     else:
                         raise HomeAssistantError(f"Unsupported temperature kind: {kind}")
-                    await self.api.async_set_zone_temperatures(
-                        zone,
-                        comfort=comfort,
-                        reduced=reduced,
+                    write_failure = await self._async_write_with_reconciliation(
+                        write=lambda: self.api.async_set_zone_temperatures(
+                            zone,
+                            comfort=comfort,
+                            reduced=reduced,
+                        ),
+                        reconcile=lambda: self._async_fresh_data([zone_number]),
+                        matches=lambda state: self._zone_temperatures_match(
+                            state,
+                            zone_number,
+                            comfort,
+                            reduced,
+                        ),
+                        description=f"Heating zone {zone_number} temperature change",
                     )
                 await self._async_refresh_after_write()
+                if write_failure is not None:
+                    raise write_failure
             except KeyError as err:
                 raise HomeAssistantError(f"Heating zone {zone_number} is unavailable") from err
             except ValueError as err:
@@ -553,7 +710,7 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
             try:
                 await self._async_cancel_deferred_discovery()
                 async with self._gateway_lock:
-                    fresh = await self._async_fresh_data()
+                    fresh = await self._async_fresh_plant_data()
                     plant = fresh.plant
                     new_comfort = (
                         plant.dhw_comfort_temperature.value if comfort is None else comfort
@@ -564,13 +721,25 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
                     new_mode = plant.dhw_mode.value if mode is None else mode
                     if new_comfort is None or new_reduced is None or new_mode is None:
                         raise HomeAssistantError("Remocon did not return complete DHW settings")
-                    await self.api.async_set_dhw(
-                        plant,
-                        comfort=new_comfort,
-                        reduced=new_reduced,
-                        mode=new_mode,
+                    write_failure = await self._async_write_with_reconciliation(
+                        write=lambda: self.api.async_set_dhw(
+                            plant,
+                            comfort=new_comfort,
+                            reduced=new_reduced,
+                            mode=new_mode,
+                        ),
+                        reconcile=self._async_fresh_plant_data,
+                        matches=lambda state: self._dhw_settings_match(
+                            state,
+                            new_comfort,
+                            new_reduced,
+                            new_mode,
+                        ),
+                        description="Domestic hot water change",
                     )
                 await self._async_refresh_after_write()
+                if write_failure is not None:
+                    raise write_failure
             except ValueError as err:
                 raise HomeAssistantError(str(err)) from err
             except ElcoAuthenticationError as err:
@@ -584,10 +753,25 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
             try:
                 await self._async_cancel_deferred_discovery()
                 async with self._gateway_lock:
-                    fresh = await self._async_fresh_data()
+                    fresh = await self._async_fresh_data([zone_number])
                     zone = fresh.zones[zone_number]
-                    await self.api.async_set_zone_mode(fresh.plant, zone, mode=mode)
+                    write_failure = await self._async_write_with_reconciliation(
+                        write=lambda: self.api.async_set_zone_mode(
+                            fresh.plant,
+                            zone,
+                            mode=mode,
+                        ),
+                        reconcile=lambda: self._async_fresh_data([zone_number]),
+                        matches=lambda state: self._zone_mode_matches(
+                            state,
+                            zone_number,
+                            mode,
+                        ),
+                        description=f"Heating zone {zone_number} mode change",
+                    )
                 await self._async_refresh_after_write()
+                if write_failure is not None:
+                    raise write_failure
             except KeyError as err:
                 raise HomeAssistantError(f"Heating zone {zone_number} is unavailable") from err
             except ValueError as err:
