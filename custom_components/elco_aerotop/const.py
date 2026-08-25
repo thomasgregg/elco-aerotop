@@ -47,6 +47,7 @@ AUTOMATED_MONITORING_PATH: Final = "/R2/AutomatedMonitoring/GetDrawerData/{gatew
 BSB_BOILER_DATA_PATH: Final = "/R2/PlantData/GetBsbBoilerData?id={gateway_id}"
 BUS_ERRORS_PATH: Final = "/api/v2/busErrors?gatewayId={gateway_id}&blockingOnly=False&culture=en-US"
 BSB_READ_PATH: Final = "/R2/PlantMenuBsb/ReadDataPoints/{gateway_id}?addresses={addresses}"
+BSB_WRITE_PATH: Final = "/R2/PlantMenuBsb/WriteDataPoints/{gateway_id}"
 
 BSB_TIME_PROGRAM_IDS: Final = {
     **{f"ChZn{zone}": zone for zone in range(1, 7)},

@@ -2,6 +2,16 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.3.12
+
+- Add a writable holiday operating-level select for Reduced/Frost protection and disabled-by-
+  default number controls for BSB lines 714 (frost setpoint), 720 (heating-curve slope), and 730
+  (summer/winter heating limit), with an exact address allowlist, compare-and-set payloads, limits,
+  mandatory controller readback, and command-specific bounded read/authentication resilience.
+- Add cooling comfort/reduced number controls and expose `HVACMode.COOL` while Remocon reports
+  cooling active, reusing the verified paired-temperature contract without attempting to switch
+  the controller's heating/cooling season.
+
 ## 0.3.11
 
 - Replace the single message-specific read retry with bounded resilience for complete `GetData`

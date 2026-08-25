@@ -22,6 +22,12 @@ from .api import (
     ElcoConnectionError,
     ElcoResponseError,
 )
+from .bsb_controls import (
+    BSB_NUMBER_CONTROL_SPECS,
+    HOLIDAY_OPERATING_LEVEL_ADDRESS,
+    bsb_point_number,
+    holiday_level_value,
+)
 from .capabilities import supports_cooling
 from .const import (
     BSB_DISCOVERY_GROUPS,
@@ -583,11 +589,27 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         zone_number: int,
         comfort: float,
         reduced: float,
+        *,
+        cooling: bool = False,
     ) -> bool:
         zone = data.zones.get(zone_number)
+        if zone is None:
+            return False
+        comfort_variable = zone.cooling_comfort_temperature if cooling else zone.comfort_temperature
+        reduced_variable = zone.cooling_reduced_temperature if cooling else zone.reduced_temperature
         return zone is not None and (
-            zone.comfort_temperature.value == comfort and zone.reduced_temperature.value == reduced
+            comfort_variable.value == comfort and reduced_variable.value == reduced
         )
+
+    @staticmethod
+    def _bsb_value_matches(points: dict[str, Any], address: str, value: float | int) -> bool:
+        current = bsb_point_number(points.get(address))
+        return current is not None and abs(current - float(value)) <= 1e-6
+
+    def _store_bsb_points(self, points: dict[str, Any]) -> None:
+        """Merge a verified control read into deferred discovery state."""
+        merged = {**self._slow_discovery.bsb_points, **points}
+        self._slow_discovery = replace(self._slow_discovery, bsb_points=merged)
 
     @staticmethod
     def _dhw_settings_match(
@@ -648,6 +670,96 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         finally:
             self._skip_slow_discovery_once = False
 
+    async def _async_set_bsb_value(
+        self,
+        *,
+        address: str,
+        read_addresses: tuple[str, ...],
+        resolve_value: Callable[[dict[str, Any]], float | int],
+        description: str,
+    ) -> None:
+        """Write and read back one allowlisted BSB value without replaying it."""
+        async with self._command_lock:
+            try:
+                await self._async_cancel_deferred_discovery()
+                async with self._gateway_lock:
+                    before = await self.api.async_get_bsb_points(read_addresses, command=True)
+                    value = resolve_value(before)
+                    point = before.get(address)
+                    if not isinstance(point, dict):
+                        raise HomeAssistantError(f"{description} is unavailable")
+
+                    ambiguous_error: ElcoApiError | None = None
+                    try:
+                        await self.api.async_write_bsb_point(point, value)
+                    except (ElcoConnectionError, ElcoResponseError) as err:
+                        if not self._is_ambiguous_write_error(err):
+                            raise
+                        if isinstance(err, ElcoResponseError) and err.retry_after is not None:
+                            raise HomeAssistantError(
+                                f"{description} may have been applied, but Remocon requested a "
+                                "delay before verification; check the controller or official "
+                                "application"
+                            ) from err
+                        ambiguous_error = err
+
+                    try:
+                        after = await self.api.async_get_bsb_points(read_addresses, command=True)
+                    except ElcoApiError as err:
+                        raise HomeAssistantError(
+                            f"{description} may have been applied, but its result could not be "
+                            "verified; check the controller or official application"
+                        ) from (ambiguous_error or err)
+                    if not self._bsb_value_matches(after, address, value):
+                        raise HomeAssistantError(
+                            f"{description} was not confirmed by a fresh controller read"
+                        ) from ambiguous_error
+                    self._store_bsb_points(after)
+
+                await self._async_refresh_after_write()
+            except ValueError as err:
+                raise HomeAssistantError(str(err)) from err
+            except ElcoAuthenticationError as err:
+                raise ConfigEntryAuthFailed from err
+            except ElcoApiError as err:
+                raise HomeAssistantError(str(err)) from err
+
+    async def async_set_bsb_number(self, key: str, value: float) -> None:
+        """Write one reviewed numeric BSB controller setting."""
+        spec = BSB_NUMBER_CONTROL_SPECS.get(key)
+        if spec is None:
+            raise HomeAssistantError(f"Unsupported BSB number control: {key}")
+        addresses = (spec.address,) + (
+            (spec.maximum_address,) if spec.maximum_address is not None else ()
+        )
+
+        def resolve_value(points: dict[str, Any]) -> float:
+            if bsb_point_number(points.get(spec.address)) is None:
+                raise ValueError(f"{spec.name} is unavailable")
+            spec.validate(value, points)
+            return value
+
+        await self._async_set_bsb_value(
+            address=spec.address,
+            read_addresses=addresses,
+            resolve_value=resolve_value,
+            description=spec.name,
+        )
+
+    async def async_set_holiday_operating_level(self, option: str) -> None:
+        """Write heating-circuit 1's Reduced/Frost-protection holiday level."""
+
+        def resolve_value(points: dict[str, Any]) -> int:
+            return holiday_level_value(points.get(HOLIDAY_OPERATING_LEVEL_ADDRESS), option)
+
+        # Resolve the numeric enum from the same fresh read used for compare-and-set.
+        await self._async_set_bsb_value(
+            address=HOLIDAY_OPERATING_LEVEL_ADDRESS,
+            read_addresses=(HOLIDAY_OPERATING_LEVEL_ADDRESS,),
+            resolve_value=resolve_value,
+            description="Holiday operating level",
+        )
+
     async def async_set_zone_temperature(
         self,
         zone_number: int,
@@ -661,13 +773,20 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
                 async with self._gateway_lock:
                     fresh = await self._async_fresh_data([zone_number])
                     zone = fresh.zones[zone_number]
-                    comfort = zone.comfort_temperature.value
-                    reduced = zone.reduced_temperature.value
+                    cooling = kind.startswith("cooling_")
+                    comfort_variable = (
+                        zone.cooling_comfort_temperature if cooling else zone.comfort_temperature
+                    )
+                    reduced_variable = (
+                        zone.cooling_reduced_temperature if cooling else zone.reduced_temperature
+                    )
+                    comfort = comfort_variable.value
+                    reduced = reduced_variable.value
                     if comfort is None or reduced is None:
                         raise HomeAssistantError("Remocon did not return both zone temperatures")
-                    if kind == "comfort":
+                    if kind in ("comfort", "cooling_comfort"):
                         comfort = value
-                    elif kind == "reduced":
+                    elif kind in ("reduced", "cooling_reduced"):
                         reduced = value
                     else:
                         raise HomeAssistantError(f"Unsupported temperature kind: {kind}")
@@ -676,6 +795,7 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
                             zone,
                             comfort=comfort,
                             reduced=reduced,
+                            cooling=cooling,
                         ),
                         reconcile=lambda: self._async_fresh_data([zone_number]),
                         matches=lambda state: self._zone_temperatures_match(
@@ -683,8 +803,12 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
                             zone_number,
                             comfort,
                             reduced,
+                            cooling=cooling,
                         ),
-                        description=f"Heating zone {zone_number} temperature change",
+                        description=(
+                            f"{'Cooling' if cooling else 'Heating'} zone {zone_number} "
+                            "temperature change"
+                        ),
                     )
                 await self._async_refresh_after_write()
                 if write_failure is not None:

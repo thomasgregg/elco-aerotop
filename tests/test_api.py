@@ -19,10 +19,12 @@ from custom_components.elco_aerotop.api import (
     _retry_after_seconds,
 )
 from custom_components.elco_aerotop.const import (
+    BSB_WRITE_PATH,
     GET_DATA_PATH,
     REQUEST_TIMEOUT,
     SET_TEMPERATURE_PATH,
 )
+from custom_components.elco_aerotop.models import ZoneState
 
 api_module = import_module("custom_components.elco_aerotop.api")
 
@@ -532,6 +534,96 @@ async def test_bsb_read_accepts_an_isolated_address_group() -> None:
 
 
 @pytest.mark.asyncio
+async def test_bsb_command_read_reauthenticates_and_replays_once() -> None:
+    session = FakeSession(
+        [
+            *login_responses(),
+            FakeResponse(status=401),
+            *login_responses(),
+            FakeResponse(
+                json_data={
+                    "ok": True,
+                    "data": [{"address": "2950646", "valueAsNumber": 0.8}],
+                }
+            ),
+        ]
+    )
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+
+    points = await client.async_get_bsb_points(("2950646",), command=True)
+
+    bsb_calls = [call for call in session.calls if "ReadDataPoints" in call[1]]
+    assert points["2950646"]["valueAsNumber"] == 0.8
+    assert len(bsb_calls) == 2
+    assert client._authenticated is True
+
+
+@pytest.mark.asyncio
+async def test_bsb_command_read_propagates_second_authentication_failure() -> None:
+    session = FakeSession(
+        [
+            *login_responses(),
+            FakeResponse(status=401),
+            *login_responses(),
+            FakeResponse(status=401),
+        ]
+    )
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+
+    with pytest.raises(ElcoAuthenticationError, match="session expired"):
+        await client.async_get_bsb_points(("2950646",), command=True)
+
+    assert sum("ReadDataPoints" in call[1] for call in session.calls) == 2
+    assert client._authenticated is False
+
+
+@pytest.mark.asyncio
+async def test_bsb_command_read_retries_one_fast_connection_failure(monkeypatch) -> None:
+    session = FakeSession(
+        [
+            *login_responses(),
+            ClientConnectionError("connection lost"),
+            FakeResponse(
+                json_data={
+                    "ok": True,
+                    "data": [{"address": "2950646", "valueAsNumber": 0.8}],
+                }
+            ),
+        ]
+    )
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+    sleep = AsyncMock()
+    monkeypatch.setattr(api_module.asyncio, "sleep", sleep)
+
+    points = await client.async_get_bsb_points(("2950646",), command=True)
+
+    assert points["2950646"]["valueAsNumber"] == 0.8
+    assert sum("ReadDataPoints" in call[1] for call in session.calls) == 2
+    sleep.assert_awaited_once_with(1)
+
+
+@pytest.mark.asyncio
+async def test_bsb_command_read_preserves_retry_after_without_retry(monkeypatch) -> None:
+    session = FakeSession(
+        [
+            *login_responses(),
+            FakeResponse(status=503, headers={"Retry-After": "120"}),
+        ]
+    )
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+    sleep = AsyncMock()
+    monkeypatch.setattr(api_module.asyncio, "sleep", sleep)
+
+    with pytest.raises(ElcoResponseError) as raised:
+        await client.async_get_bsb_points(("2950646",), command=True)
+
+    assert raised.value.status == 503
+    assert raised.value.retry_after == 120
+    assert sum("ReadDataPoints" in call[1] for call in session.calls) == 1
+    sleep.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_plant_metadata_matches_gateway_id_or_serial() -> None:
     plants = [
         {
@@ -671,6 +763,99 @@ async def test_zone_write_preserves_full_zone_state() -> None:
     assert request_body["comfort"] == 22
     assert request_body["reduced"] == 17
     assert request_body["zoneData"] == data.zones[1].raw
+
+
+@pytest.mark.asyncio
+async def test_cooling_write_uses_active_cooling_pair_and_full_zone_state() -> None:
+    session = FakeSession([*login_responses(), FakeResponse(json_data={"ok": True, "data": {}})])
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+    zone = ZoneState.parse(
+        1,
+        {
+            "isCoolingActive": True,
+            "coolComfortTemp": {"value": 24, "min": 18, "max": 30, "step": 0.5},
+            "coolReducedTemp": {"value": 28, "min": 18, "max": 30, "step": 0.5},
+        },
+    )
+
+    await client.async_set_zone_temperatures(
+        zone,
+        comfort=23.5,
+        reduced=28,
+        cooling=True,
+    )
+
+    request_body = session.calls[-1][2]["json"]
+    assert request_body == {
+        "zoneNum": 1,
+        "comfort": 23.5,
+        "reduced": 28,
+        "plantData": None,
+        "zoneData": zone.raw,
+    }
+
+
+@pytest.mark.asyncio
+async def test_cooling_write_is_rejected_when_controller_is_not_in_cooling_mode() -> None:
+    client = ElcoApiClient(FakeSession([]), "user", "pass", "gateway", "https://example.test")
+    zone = ZoneState.parse(
+        1,
+        {
+            "isCoolingActive": False,
+            "coolComfortTemp": {"value": 24, "min": 18, "max": 30, "step": 0.5},
+            "coolReducedTemp": {"value": 28, "min": 18, "max": 30, "step": 0.5},
+        },
+    )
+
+    with pytest.raises(ValueError, match="only be changed while the zone is in heating mode"):
+        await client.async_set_zone_temperatures(
+            zone,
+            comfort=23.5,
+            reduced=28,
+            cooling=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_allowlisted_bsb_write_preserves_compare_and_set_values() -> None:
+    session = FakeSession([*login_responses(), FakeResponse(json_data={"ok": True, "data": []})])
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+    point = {
+        "address": "2950646",
+        "valueAsNumber": 0.8,
+        "valueAsString": None,
+        "osv": False,
+        "anyError": False,
+        "deviceFailure": False,
+        "bsbErrorCode": 0,
+        "commErrorCode": 0,
+    }
+
+    await client.async_write_bsb_point(point, 1.0)
+
+    assert session.calls[-1][1].endswith(BSB_WRITE_PATH.format(gateway_id="GATEWAY"))
+    assert session.calls[-1][2]["json"] == [
+        {
+            "address": 2950646,
+            "oldOsv": False,
+            "oldValueAsString": None,
+            "oldValueAsNumber": 0.8,
+            "newOsv": False,
+            "newValueAsString": None,
+            "newValueAsNumber": 1.0,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_arbitrary_bsb_write_is_rejected_before_network_access() -> None:
+    client = ElcoApiClient(FakeSession([]), "user", "pass", "gateway", "https://example.test")
+
+    with pytest.raises(ValueError, match="is not writable"):
+        await client.async_write_bsb_point(
+            {"address": "333521", "valueAsNumber": 40, "osv": False},
+            41,
+        )
 
 
 @pytest.mark.asyncio

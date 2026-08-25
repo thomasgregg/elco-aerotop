@@ -83,6 +83,7 @@ from custom_components.elco_aerotop.coordinator import (  # noqa: E402
 from custom_components.elco_aerotop.models import (  # noqa: E402
     ElcoData,
     PlantState,
+    ReadOnlyDiscovery,
     ZoneState,
 )
 
@@ -100,6 +101,9 @@ def _data(
     dhw_comfort: float = 49,
     dhw_reduced: float = 44,
     dhw_mode: int = 1,
+    cooling_active: bool = False,
+    cooling_comfort: float = 24,
+    cooling_reduced: float = 28,
 ) -> ElcoData:
     plant = PlantState.parse(
         {
@@ -113,10 +117,53 @@ def _data(
         {
             "chComfortTemp": {"value": zone_comfort, "min": 10, "max": 30, "step": 0.5},
             "chReducedTemp": {"value": zone_reduced, "min": 10, "max": 30, "step": 0.5},
+            "coolComfortTemp": {
+                "value": cooling_comfort,
+                "min": 18,
+                "max": 30,
+                "step": 0.5,
+            },
+            "coolReducedTemp": {
+                "value": cooling_reduced,
+                "min": 18,
+                "max": 30,
+                "step": 0.5,
+            },
+            "isCoolingActive": cooling_active,
             "mode": {"value": zone_mode, "allowedOptions": [0, 1, 2, 3]},
         },
     )
     return ElcoData("GATEWAY", plant, {1: zone})
+
+
+def _bsb_points(*, slope: float = 0.8, holiday_level: int = 0) -> dict[str, dict]:
+    def point(address: str, value: float, **extra) -> dict:
+        return {
+            "address": address,
+            "valueAsNumber": value,
+            "valueAsString": None,
+            "osv": False,
+            "anyError": False,
+            "deviceFailure": False,
+            "bsbErrorCode": 0,
+            "commErrorCode": 0,
+            **extra,
+        }
+
+    return {
+        "2950338": point(
+            "2950338",
+            holiday_level,
+            enumOptions=[
+                {"value": 0, "text": "Frost protection"},
+                {"value": 1, "text": "Reduced"},
+            ],
+        ),
+        "2950544": point("2950544", 18),
+        "2950546": point("2950546", 8),
+        "2950646": point("2950646", slope),
+        "2950653": point("2950653", 18),
+    }
 
 
 class FakeApi:
@@ -128,12 +175,16 @@ class FakeApi:
         responses: list[ElcoData | Exception] | None = None,
         *,
         write_responses: list[Exception | None] | None = None,
+        bsb_responses: list[dict[str, dict] | Exception] | None = None,
     ) -> None:
         self.responses = list(responses or [_data()])
         self.write_responses = list(write_responses or [None])
         self.get_data_calls = 0
         self.get_data_arguments: list[tuple[list[int], bool]] = []
         self.write_calls: list[tuple[str, tuple, dict]] = []
+        self.bsb_responses = list(bsb_responses or [_bsb_points()])
+        self.bsb_read_arguments: list[tuple[str, ...]] = []
+        self.bsb_read_commands: list[bool] = []
 
     async def async_get_data(self, zones, *, use_cache=True) -> ElcoData:
         self.get_data_calls += 1
@@ -164,6 +215,24 @@ class FakeApi:
 
     async def async_set_zone_mode(self, *args, **kwargs) -> None:
         self._record_write("zone_mode", args, kwargs)
+
+    async def async_get_bsb_points(
+        self,
+        addresses,
+        *,
+        command: bool = False,
+    ) -> dict[str, dict]:
+        self.bsb_read_arguments.append(tuple(addresses))
+        self.bsb_read_commands.append(command)
+        response = (
+            self.bsb_responses.pop(0) if len(self.bsb_responses) > 1 else self.bsb_responses[0]
+        )
+        if isinstance(response, Exception):
+            raise response
+        return {address: response[address] for address in addresses if address in response}
+
+    async def async_write_bsb_point(self, *args, **kwargs) -> None:
+        self._record_write("bsb_point", args, kwargs)
 
 
 def _coordinator(api: FakeApi | None = None) -> ElcoDataUpdateCoordinator:
@@ -322,6 +391,88 @@ async def test_ambiguous_write_honors_retry_after_without_reconciliation() -> No
     assert api.get_data_calls == 1
     assert len(api.write_calls) == 1
     coordinator.async_request_refresh.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_bsb_number_write_reads_validates_writes_and_reads_back() -> None:
+    before = _bsb_points(slope=0.8)
+    after = _bsb_points(slope=1.0)
+    api = FakeApi(bsb_responses=[before, after])
+    coordinator = _coordinator(api)
+    coordinator._slow_discovery = ReadOnlyDiscovery(bsb_points=before)
+    coordinator.async_request_refresh = AsyncMock()
+
+    await coordinator.async_set_bsb_number("heating_curve_slope_720", 1.0)
+
+    assert api.bsb_read_arguments == [("2950646",), ("2950646",)]
+    assert api.bsb_read_commands == [True, True]
+    assert api.write_calls[0][0] == "bsb_point"
+    assert api.write_calls[0][1] == (before["2950646"], 1.0)
+    assert coordinator._slow_discovery.bsb_points["2950646"]["valueAsNumber"] == 1.0
+    coordinator.async_request_refresh.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_frost_setpoint_write_reads_its_dynamic_reduced_limit() -> None:
+    before = _bsb_points()
+    after = _bsb_points()
+    after["2950546"] = {**after["2950546"], "valueAsNumber": 10}
+    api = FakeApi(bsb_responses=[before, after])
+    coordinator = _coordinator(api)
+    coordinator.async_request_refresh = AsyncMock()
+
+    await coordinator.async_set_bsb_number("heating_circuit_frost_protection_setpoint_714", 10)
+
+    assert api.bsb_read_arguments == [
+        ("2950546", "2950544"),
+        ("2950546", "2950544"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_holiday_level_write_uses_fresh_server_enum_code() -> None:
+    before = _bsb_points(holiday_level=0)
+    after = _bsb_points(holiday_level=1)
+    api = FakeApi(bsb_responses=[before, after])
+    coordinator = _coordinator(api)
+    coordinator.async_request_refresh = AsyncMock()
+
+    await coordinator.async_set_holiday_operating_level("Reduced")
+
+    assert api.write_calls[0][1] == (before["2950338"], 1)
+    assert api.bsb_read_arguments == [("2950338",), ("2950338",)]
+    coordinator.async_request_refresh.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_bsb_write_is_not_replayed_after_ambiguous_response() -> None:
+    api = FakeApi(
+        write_responses=[ElcoConnectionError("response lost")],
+        bsb_responses=[_bsb_points(slope=0.8), _bsb_points(slope=1.0)],
+    )
+    coordinator = _coordinator(api)
+    coordinator.async_request_refresh = AsyncMock()
+
+    await coordinator.async_set_bsb_number("heating_curve_slope_720", 1.0)
+
+    assert len(api.write_calls) == 1
+    assert len(api.bsb_read_arguments) == 2
+    coordinator.async_request_refresh.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_cooling_temperature_write_preserves_the_cooling_pair() -> None:
+    api = FakeApi([_data(cooling_active=True)])
+    coordinator = _coordinator(api)
+    coordinator.async_request_refresh = AsyncMock()
+
+    await coordinator.async_set_zone_temperature(1, "cooling_comfort", 23.5)
+
+    name, args, kwargs = api.write_calls[0]
+    assert name == "zone_temperature"
+    assert args[0].cooling_active is True
+    assert kwargs == {"comfort": 23.5, "reduced": 28, "cooling": True}
+    coordinator.async_request_refresh.assert_awaited_once()
 
 
 @pytest.mark.asyncio

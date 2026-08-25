@@ -15,12 +15,6 @@ DHW_MODE_ECO = 2
 
 PRESET_PROTECTION = "Protection"
 
-_ZONE_HVAC_MODES = {
-    ZONE_MODE_PROTECTION: "heat",
-    ZONE_MODE_AUTOMATIC: "auto",
-    ZONE_MODE_REDUCED: "heat",
-    ZONE_MODE_COMFORT: "heat",
-}
 _ZONE_PRESETS = {
     ZONE_MODE_PROTECTION: PRESET_PROTECTION,
     ZONE_MODE_REDUCED: "eco",
@@ -38,19 +32,23 @@ def _supported_values(variable: SelectVariable) -> set[int]:
     return {option.value for option in variable.options}
 
 
-def zone_hvac_mode(variable: SelectVariable) -> str | None:
+def zone_hvac_mode(variable: SelectVariable, *, cooling: bool = False) -> str | None:
     """Translate the current ELCO zone mode to a Home Assistant HVAC mode."""
-    return _ZONE_HVAC_MODES.get(variable.value)
+    if variable.value == ZONE_MODE_AUTOMATIC:
+        return "auto"
+    if variable.value in {ZONE_MODE_PROTECTION, ZONE_MODE_REDUCED, ZONE_MODE_COMFORT}:
+        return "cool" if cooling else "heat"
+    return None
 
 
-def zone_hvac_modes(variable: SelectVariable) -> tuple[str, ...]:
+def zone_hvac_modes(variable: SelectVariable, *, cooling: bool = False) -> tuple[str, ...]:
     """Return only HVAC modes backed by options offered by the gateway."""
     supported = _supported_values(variable)
     modes: list[str] = []
     if ZONE_MODE_AUTOMATIC in supported:
         modes.append("auto")
     if supported.intersection({ZONE_MODE_PROTECTION, ZONE_MODE_REDUCED, ZONE_MODE_COMFORT}):
-        modes.append("heat")
+        modes.append("cool" if cooling else "heat")
     return tuple(modes)
 
 
@@ -65,12 +63,18 @@ def zone_presets(variable: SelectVariable) -> tuple[str, ...]:
     return tuple(preset for value, preset in _ZONE_PRESETS.items() if value in supported)
 
 
-def zone_mode_for_hvac(variable: SelectVariable, hvac_mode: str) -> int:
+def zone_mode_for_hvac(
+    variable: SelectVariable,
+    hvac_mode: str,
+    *,
+    cooling: bool = False,
+) -> int:
     """Return the verified controller mode for a Home Assistant HVAC mode."""
     supported = _supported_values(variable)
     if hvac_mode == "auto" and ZONE_MODE_AUTOMATIC in supported:
         return ZONE_MODE_AUTOMATIC
-    if hvac_mode == "heat":
+    direct_mode = "cool" if cooling else "heat"
+    if hvac_mode == direct_mode:
         for value in (ZONE_MODE_COMFORT, ZONE_MODE_REDUCED, ZONE_MODE_PROTECTION):
             if value in supported:
                 return value

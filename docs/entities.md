@@ -36,6 +36,9 @@ Testing is especially useful for:
 
 - a conservative thermostat or DHW setpoint change that can be checked immediately on the ELCO
   controller or official application;
+- one conservative change to each new BSB control, followed by checking lines 648, 714, 720, or
+  730 on the controller or Remocon;
+- cooling comfort/reduced changes during a period when Remocon reports cooling as active;
 - every returned operating-mode choice, while avoiding changes that could make the installation
   unsafe or uncomfortable;
 - populated holiday periods, including active, future, deleted, and out-of-service entries;
@@ -53,9 +56,10 @@ numbers, addresses, or other personal data.
 | Entity group | Section | Default | Why |
 |---|---|:---:|---|
 | Zone thermostat and domestic hot water | Controls | Enabled | Primary user-facing controls |
-| Zone/DHW reduced temperatures | Configuration | Enabled | Independent stored setpoints not represented by the native controls |
+| Zone/DHW and cooling reduced temperatures | Configuration | Enabled | Independent stored setpoints not represented by the native controls |
 | Duplicate comfort numbers and mode selects | Configuration | Disabled | Compatibility and advanced access without duplicating primary controls |
-| Holiday operating level | Diagnostics | Enabled | Relevant read-only setting associated with holiday calendars |
+| Holiday operating-level select | Configuration | Enabled | Small, reversible controller setting associated with holiday calendars |
+| BSB 714/720/730 controls | Configuration | Disabled | Advanced controller tuning with fixed, reviewed limits |
 | Cooling, protection, holiday, and flow-offset values | Diagnostics | Disabled | Advanced read-only settings rather than live measurements |
 | Outdoor, DHW, room, desired, pressure, flow, return, setpoint, demand, running, and flame values | Sensors | Enabled | Useful operational measurements and states |
 | Metadata, faults, maintenance, and health | Diagnostics | Enabled | Important device and problem information kept out of normal sensors |
@@ -63,10 +67,10 @@ numbers, addresses, or other personal data.
 | Low-level BSB 700–730 and cooling 8786/8787 values | Diagnostics | Disabled | Controller-level troubleshooting |
 | All 80 energy-history entities | Diagnostics | Disabled | Fixed historical records, not increasing Energy Dashboard counters |
 
-Entity category and entity domain answer different questions. Holiday operating level is a sensor
-because it is read-only, and Home Assistant displays it in Diagnostics because
-configuration-category entities must provide a control. A diagnostic temperature remains a
-temperature sensor even though it appears under Diagnostics.
+Entity category and entity domain answer different questions. The writable holiday operating
+level is a Configuration select; its older sensor counterpart remains a read-only Diagnostic for
+compatibility. A diagnostic temperature remains a temperature sensor even though it appears under
+Diagnostics.
 
 ## Primary controls
 
@@ -80,19 +84,22 @@ temperature sensor even though it appears under Diagnostics.
 | ELCO mode | HA HVAC mode | Preset | Write result |
 |---|---|---|---|
 | Automatic | auto | None | ELCO Automatic; its time program stays in control |
-| Comfort | heat | comfort | Continuous Comfort operation |
-| Reduced | heat | eco | Continuous Reduced operation |
-| Protection | heat | Protection | ELCO frost-protection operation |
+| Comfort | heat or cool | comfort | Continuous Comfort operation |
+| Reduced | heat or cool | eco | Continuous Reduced operation |
+| Protection | heat or cool | Protection | ELCO protection operation |
 
 Protection is not mapped to off because the controller may still request heat to protect the
-installation. A writable cool mode is not exposed because the cooling write contract has not been
-verified, even when cooling readings exist.
+installation. Direct operation is exposed as `heat` in the heating season and `cool` only while a
+fresh Remocon snapshot reports `isCoolingActive: true`. Selecting `cool` changes the same verified
+Comfort/Reduced/Protection operating level as Remocon; it does not enable cooling or switch the
+plant between heating and cooling seasons.
 
-The thermostat target is the stored **comfort setpoint**. The effective request may differ during
-Automatic, Reduced, Protection, or holiday operation; the desired-temperature sensor reports that
-effective request. Current temperature comes only from the zone's real room probe. Outdoor, flow,
-and desired temperatures are not substituted because they have different physical meanings.
-Heating/cooling/idle activity appears only when Remocon supplies the activity flags.
+The thermostat target is the stored **heating comfort setpoint**, or the **cooling comfort
+setpoint** while cooling is active. The effective request may differ during Automatic, Reduced,
+Protection, or holiday operation; the desired-temperature sensor reports that effective request.
+Current temperature comes only from the zone's real room probe. Outdoor, flow, and desired
+temperatures are not substituted because they have different physical meanings. Heating/cooling/
+idle activity appears only when Remocon supplies the activity flags.
 
 ### Domestic-hot-water mapping
 
@@ -124,8 +131,14 @@ controller variants. This is the intentional overlap between Controls and Config
 | DHW reduced temperature | `number.<device>_domestic_hot_water_reduced_temperature` | Enabled | A reduced value is returned | Read/write |
 | Zone `<zone>` comfort temperature | `number.<device>_zone_<zone>_comfort_temperature` | Disabled | A comfort value is returned | Read/write |
 | Zone `<zone>` reduced temperature | `number.<device>_zone_<zone>_reduced_temperature` | Enabled | A reduced value is returned | Read/write |
+| Zone `<zone>` cooling comfort temperature | `number.<device>_zone_<zone>_cooling_comfort_temperature` | Disabled | Cooling capability and a comfort value are returned | Read/write while cooling is active |
+| Zone `<zone>` cooling reduced temperature | `number.<device>_zone_<zone>_cooling_reduced_temperature` | Enabled | Cooling capability and a reduced value are returned | Read/write while cooling is active |
 | DHW mode | `select.<device>_domestic_hot_water_mode` | Disabled | Allowed DHW choices are returned | Read/write |
 | Zone `<zone>` mode | `select.<device>_zone_<zone>_mode` | Disabled | Allowed zone choices are returned | Read/write |
+| Zone 1 holiday operating level | `select.<device>_zone_1_holiday_operating_level` | Enabled | Heating circuit 1 exists; usable when BSB line 648 is returned | Read/write |
+| Heating circuit 714 frost protection setpoint | `number.<device>_heating_circuit_frost_protection_setpoint_714` | Disabled | A zone exists; usable when BSB lines 712 and 714 are returned | Read/write |
+| Heating circuit 720 heating curve slope | `number.<device>_heating_curve_slope_720` | Disabled | A zone exists; usable when BSB line 720 is returned | Read/write |
+| Heating circuit 730 summer/winter heating limit | `number.<device>_summer_winter_heating_limit_730` | Disabled | A zone exists; usable when BSB line 730 is returned | Read/write |
 
 Comfort numbers and mode selects duplicate the native controls, so new registrations keep them
 disabled. Reduced values remain enabled because neither native model has a separate reduced target.
@@ -133,8 +146,15 @@ Both representations share one coordinator write path; changing one updates the 
 post-command refresh without sending a second command.
 
 Temperature numbers declare Home Assistant's temperature device class and native degrees Celsius
-unit. They use Remocon minimum, maximum, and step values when available. The integration rejects a
-comfort temperature below its related reduced temperature and preserves unchanged setpoints/modes.
+unit. Zone values use Remocon limits. The reviewed BSB limits are 4–35 °C in 0.5 °C steps for line
+714 (also capped by the fresh line-712 reduced setpoint), 0.1–4.0 in 0.02 steps for line 720, and
+8–30 °C in 0.5 °C steps for line 730. The integration rejects heating comfort below reduced,
+cooling comfort above reduced, and preserves unchanged companion values.
+
+The line-648 select resolves the numeric enum from the fresh controller response, so translated
+or model-specific option codes are not guessed. All four BSB writes are exact-address allowlisted,
+read before writing, and read back after writing. The existing read-only sensor entities for the
+same values remain available for dashboard and entity-ID compatibility.
 
 ## Operational sensors
 
@@ -201,10 +221,11 @@ ELCO's final date is inclusive while Home Assistant calendar ends are exclusive,
 integration adds one day when presenting an event. Holiday operating level says whether the
 periods use Reduced or Frost protection.
 
-Holiday editing is intentionally absent. The observed write sends complete plant/zone state and
-forces Automatic mode, so create/update/delete must be verified on a populated gateway first.
-The calendar conversion and schedule discovery also need reports from real populated controllers;
-see [Testing status and how to help](#testing-status-and-how-to-help).
+Holiday-period editing is intentionally absent. The observed period write sends complete
+plant/zone state and forces Automatic mode, so create/update/delete must be verified on a populated
+gateway first. The separate holiday operating-level select changes only Reduced versus Frost
+protection. The calendar conversion and schedule discovery also need reports from real populated
+controllers; see [Testing status and how to help](#testing-status-and-how-to-help).
 
 ## Diagnostics enabled by default
 

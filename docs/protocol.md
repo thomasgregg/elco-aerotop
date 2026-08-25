@@ -96,15 +96,18 @@ through `bsbPlantData` and the reviewed `PlantMenuBsb/ReadDataPoints` allowlist.
 
 ## Writing state
 
-Heating comfort and reduced setpoints are an atomic pair:
+Heating and cooling comfort/reduced setpoints use the same atomic-pair endpoint:
 
 ```text
 POST /R2/PlantTimeProgBsb/SetTemperature/{gateway}
 ```
 
-The body contains `zoneNum`, both temperatures, `plantData: null`, and the full fresh `zoneData`
-snapshot. Sending the temperatures through `PlantHomeBsb/SetData` can return success without
-propagating the values to the controller, so this integration does not do that.
+The body contains `zoneNum`, both active-season temperatures, `plantData: null`, and the full fresh
+`zoneData` snapshot. Cooling values are sent only when that fresh snapshot reports
+`isCoolingActive: true`; heating values are sent otherwise. The integration enforces heating
+comfort >= reduced and cooling comfort <= reduced. This contract does not switch the controller's
+heating/cooling season. Sending temperatures through `PlantHomeBsb/SetData` can return success
+without propagating the values to the controller, so this integration does not do that.
 
 Domestic-hot-water comfort temperature, reduced temperature, and mode are also an atomic command:
 
@@ -143,6 +146,34 @@ POST /R2/PlantHomeBsb/SetData/{gateway}
 
 The body intentionally includes only the DHW values required by the endpoint, the selected zone
 and mode, and `viewModel.zoneNumber`. Unrelated writable fields are omitted.
+
+Four reviewed heating-circuit settings use Remocon's BSB compare-and-set endpoint:
+
+```text
+POST /R2/PlantMenuBsb/WriteDataPoints/{gateway}
+```
+
+| Display line | Internal address | Writable value |
+|---:|---:|---|
+| 648 | `2950338` | Holiday operating level: Reduced or Frost protection |
+| 714 | `2950546` | Frost-protection setpoint, additionally capped by fresh line 712 (`2950544`) |
+| 720 | `2950646` | Heating-curve slope |
+| 730 | `2950653` | Summer/winter heating limit |
+
+Each request contains exactly one item with `address`, `oldOsv`, `oldValueAsString`,
+`oldValueAsNumber`, `newOsv`, `newValueAsString`, and `newValueAsNumber`. The old values come from
+an immediate `ReadDataPoints` call. A second immediate read must confirm the new numeric value even
+after an HTTP success. Line 648's numeric value is selected by matching the server-provided enum
+text; no numeric code is assumed. The API layer rejects every address outside this four-address
+allowlist.
+
+The command-path BSB reads use the same bounded safe-read policy as `GetData`: one transparent
+authentication renewal and one immediate retry for a fast retryable transport interruption,
+controller `Communication error`, or HTTP `408`, `500`, `502`, `503`, or `504`, within one overall
+request deadline.
+Timeouts, TLS failures, authentication failures after renewal, and responses with `Retry-After`
+are not immediately retried. Background BSB discovery retains its isolated no-retry/no-session-
+invalidation behavior. Neither policy ever retries a write.
 
 ## Change policy
 

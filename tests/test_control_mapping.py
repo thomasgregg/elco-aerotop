@@ -48,6 +48,17 @@ def test_zone_protection_is_a_heat_preset_not_off() -> None:
     assert zone_mode_for_preset(protection, PRESET_PROTECTION) == 0
 
 
+def test_active_cooling_season_uses_cool_without_inventing_a_season_switch() -> None:
+    _, zone = _fixture_states()
+    comfort = type(zone.mode)(value=3, options=zone.mode.options)
+
+    assert zone_hvac_modes(zone.mode, cooling=True) == ("auto", "cool")
+    assert zone_hvac_mode(comfort, cooling=True) == "cool"
+    assert zone_mode_for_hvac(zone.mode, "cool", cooling=True) == 3
+    with pytest.raises(ValueError, match="Unsupported HVAC mode"):
+        zone_mode_for_hvac(zone.mode, "heat", cooling=True)
+
+
 def test_dhw_modes_only_include_options_offered_by_gateway() -> None:
     plant, _ = _fixture_states()
 

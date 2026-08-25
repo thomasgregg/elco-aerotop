@@ -7,8 +7,10 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 
+from .bsb_controls import HOLIDAY_OPERATING_LEVEL_ADDRESS, HOLIDAY_OPERATING_LEVEL_OPTIONS
 from .coordinator import ElcoDataUpdateCoordinator
 from .entity import ElcoAerotopEntity
+from .models import bsb_point_value
 
 
 class ElcoDhwModeSelect(ElcoAerotopEntity, SelectEntity):
@@ -61,6 +63,36 @@ class ElcoZoneModeSelect(ElcoAerotopEntity, SelectEntity):
         )
 
 
+class ElcoHolidayOperatingLevelSelect(ElcoAerotopEntity, SelectEntity):
+    """Control the BSB heating-circuit 1 holiday operating level."""
+
+    _attr_name = "Zone 1 holiday operating level"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_options = list(HOLIDAY_OPERATING_LEVEL_OPTIONS)
+
+    def __init__(self, coordinator: ElcoDataUpdateCoordinator) -> None:
+        super().__init__(coordinator, "zone_1_holiday_operating_level")
+
+    @property
+    def current_option(self) -> str | None:
+        label = bsb_point_value(
+            self.coordinator.data.discovery.bsb_points.get(HOLIDAY_OPERATING_LEVEL_ADDRESS)
+        )
+        if isinstance(label, str):
+            normalized = label.casefold()
+            if "reduced" in normalized:
+                return "Reduced"
+            if "frost" in normalized or "protection" in normalized:
+                return "Frost protection"
+        zone = self.coordinator.data.zones.get(1)
+        if zone is None or zone.use_reduced_operation_mode_on_holiday is None:
+            return None
+        return "Reduced" if zone.use_reduced_operation_mode_on_holiday else "Frost protection"
+
+    async def async_select_option(self, option: str) -> None:
+        await self.coordinator.async_set_holiday_operating_level(option)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -75,4 +107,6 @@ async def async_setup_entry(
         for zone_number, zone in coordinator.data.zones.items()
         if zone.mode.options
     )
+    if 1 in coordinator.data.zones:
+        entities.append(ElcoHolidayOperatingLevelSelect(coordinator))
     async_add_entities(entities)

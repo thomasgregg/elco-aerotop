@@ -47,8 +47,9 @@ directly to the heat pump over the local network.
 | Use case | Home Assistant experience |
 |---|---|
 | Monitor the system | Temperatures, pressure, flow values, operating state, and heat demand |
-| Control room heating | A thermostat for each supported heating zone |
+| Control room heating and cooling | A thermostat for each supported zone, with cooling controls while Remocon reports cooling active |
 | Control hot water | A native water-heater entity with target temperature and operating mode |
+| Tune heating behavior | Allowlisted controls for holiday level, frost setpoint, heating curve, and summer/winter limit |
 | Build automations | Use temperatures, demand, operating state, and holiday periods as inputs |
 | Find problems | Controller errors, probe faults, maintenance codes, and appliance-health data |
 | Check the installation | Gateway connectivity, plant status, controller model, owner, location, and gateway version |
@@ -232,11 +233,12 @@ The native and advanced controls are two views of those same validated values:
 
 | User-facing control | Remocon value written | Preserved companion values |
 |---|---|---|
-| Thermostat target | Zone comfort temperature | Zone reduced temperature and current zone payload |
+| Thermostat target | Active heating or cooling comfort temperature | Matching reduced temperature and current zone payload |
 | Thermostat HVAC mode/preset | Zone operating mode | Fresh plant and zone payload |
 | Water-heater target | DHW comfort temperature | DHW reduced temperature and current mode |
 | Water-heater operation/on/off | DHW mode | DHW comfort and reduced temperatures |
 | Advanced number/select | Its corresponding value above | Same companions as the native entity |
+| Holiday level and BSB tuning numbers | One exact allowlisted BSB address | Fresh compare-and-set values; controller readback required |
 
 All writable temperature numbers declare Home Assistant's temperature device class and native
 degrees Celsius unit, enabling correct temperature semantics and configured-unit conversion.
@@ -244,6 +246,10 @@ degrees Celsius unit, enabling correct temperature semantics and configured-unit
 The integration deliberately does not expose an arbitrary BSB-address write service. New writable
 parameters should only be added after their request shape and controller behavior have been
 captured and tested.
+
+The thermostat exposes `cool` and writes cooling comfort/reduced values only while a fresh
+controller snapshot reports cooling as active. It does not use `HVACMode.COOL` to switch the plant
+from heating into cooling; seasonal enablement remains under the controller's own configuration.
 
 ## Availability and refresh behavior
 

@@ -1,4 +1,4 @@
-"""Native thermostat entities for ELCO Aerotop heating zones."""
+"""Native thermostat entities for ELCO Aerotop heating and cooling zones."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from .control_mapping import (
 )
 from .coordinator import ElcoDataUpdateCoordinator
 from .entity import ElcoAerotopEntity
-from .models import ZoneState
+from .models import NumericVariable, ZoneState
 
 
 class ElcoZoneClimate(ElcoAerotopEntity, ClimateEntity):
@@ -42,11 +42,10 @@ class ElcoZoneClimate(ElcoAerotopEntity, ClimateEntity):
         self._zone_number = zone_number
         self._attr_name = f"Zone {zone_number} thermostat"
 
-        variable = self._zone.comfort_temperature
+        variable = self._target_variable
         self._attr_min_temp = variable.minimum if variable.minimum is not None else 5.0
         self._attr_max_temp = variable.maximum if variable.maximum is not None else 35.0
         self._attr_target_temperature_step = variable.step or 0.5
-        self._attr_hvac_modes = [HVACMode(mode) for mode in zone_hvac_modes(self._zone.mode)]
         self._attr_preset_modes = list(zone_presets(self._zone.mode))
         self._attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
         if self._attr_preset_modes:
@@ -55,6 +54,41 @@ class ElcoZoneClimate(ElcoAerotopEntity, ClimateEntity):
     @property
     def _zone(self) -> ZoneState:
         return self.coordinator.data.zones[self._zone_number]
+
+    @property
+    def _is_cooling(self) -> bool:
+        """Return whether ELCO currently has the zone in its cooling season."""
+        return self._zone.cooling_active is True
+
+    @property
+    def _target_variable(self) -> NumericVariable:
+        """Return the comfort setpoint controlled in the active season."""
+        return (
+            self._zone.cooling_comfort_temperature
+            if self._is_cooling
+            else self._zone.comfort_temperature
+        )
+
+    @property
+    def hvac_modes(self) -> list[HVACMode]:
+        """Expose cool only when the controller reports cooling as active."""
+        return [
+            HVACMode(mode) for mode in zone_hvac_modes(self._zone.mode, cooling=self._is_cooling)
+        ]
+
+    @property
+    def min_temp(self) -> float:
+        variable = self._target_variable
+        return variable.minimum if variable.minimum is not None else 5.0
+
+    @property
+    def max_temp(self) -> float:
+        variable = self._target_variable
+        return variable.maximum if variable.maximum is not None else 35.0
+
+    @property
+    def target_temperature_step(self) -> float:
+        return self._target_variable.step or 0.5
 
     @property
     def current_temperature(self) -> float | None:
@@ -66,13 +100,13 @@ class ElcoZoneClimate(ElcoAerotopEntity, ClimateEntity):
 
     @property
     def target_temperature(self) -> float | None:
-        """Return the zone comfort setpoint controlled by this entity."""
-        return self._zone.comfort_temperature.value
+        """Return the active heating or cooling comfort setpoint."""
+        return self._target_variable.value
 
     @property
     def hvac_mode(self) -> HVACMode | None:
         """Return the native HVAC mode for the current controller mode."""
-        mode = zone_hvac_mode(self._zone.mode)
+        mode = zone_hvac_mode(self._zone.mode, cooling=self._is_cooling)
         return HVACMode(mode) if mode is not None else None
 
     @property
@@ -99,14 +133,18 @@ class ElcoZoneClimate(ElcoAerotopEntity, ClimateEntity):
             raise HomeAssistantError("A target temperature is required")
         await self.coordinator.async_set_zone_temperature(
             self._zone_number,
-            "comfort",
+            "cooling_comfort" if self._is_cooling else "comfort",
             float(temperature),
         )
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Set Automatic or the best available direct-heating mode."""
+        """Set Automatic or the best available direct operating mode."""
         try:
-            mode = zone_mode_for_hvac(self._zone.mode, hvac_mode.value)
+            mode = zone_mode_for_hvac(
+                self._zone.mode,
+                hvac_mode.value,
+                cooling=self._is_cooling,
+            )
         except ValueError as err:
             raise HomeAssistantError(str(err)) from err
         await self.coordinator.async_set_zone_mode(self._zone_number, mode)
@@ -130,6 +168,14 @@ async def async_setup_entry(
     entities = [
         ElcoZoneClimate(coordinator, zone_number)
         for zone_number, zone in coordinator.data.zones.items()
-        if zone.comfort_temperature.value is not None and zone_hvac_modes(zone.mode)
+        if (
+            (
+                zone.cooling_comfort_temperature.value
+                if zone.cooling_active is True
+                else zone.comfort_temperature.value
+            )
+            is not None
+            and zone_hvac_modes(zone.mode, cooling=zone.cooling_active is True)
+        )
     ]
     async_add_entities(entities)

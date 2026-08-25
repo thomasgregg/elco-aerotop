@@ -23,6 +23,7 @@ from aiohttp import (
 )
 from yarl import URL
 
+from .bsb_controls import BSB_WRITABLE_ADDRESSES
 from .const import (
     AUTOMATED_MONITORING_PATH,
     BSB_BOILER_DATA_PATH,
@@ -31,6 +32,7 @@ from .const import (
     BSB_READ_PATH,
     BSB_TIME_PROGRAM_IDS,
     BSB_TIME_PROGRAM_PATH,
+    BSB_WRITE_PATH,
     BUS_ERRORS_PATH,
     DATA_ITEMS_PATH,
     FEATURES_PATH,
@@ -52,15 +54,15 @@ from .const import (
     USER_AGENT,
     ZONE_DATA_ITEM_IDS,
 )
-from .models import ElcoData, PlantState, ZoneState
+from .models import ElcoData, PlantState, ZoneState, bsb_point_available
 
 _LOGGER = logging.getLogger(__name__)
 
 _CONNECT_TIMEOUT_SECONDS = 15
 _SOCKET_READ_TIMEOUT_SECONDS = 65
-_GET_DATA_ATTEMPTS = 2
-_GET_DATA_RETRY_DELAY_SECONDS = 1
-_RETRYABLE_GET_DATA_STATUSES = frozenset({408, 500, 502, 503, 504})
+_SAFE_READ_ATTEMPTS = 2
+_SAFE_READ_RETRY_DELAY_SECONDS = 1
+_RETRYABLE_READ_STATUSES = frozenset({408, 500, 502, 503, 504})
 _MAX_RETRY_AFTER_SECONDS = 86400
 
 _TOKEN_RE = re.compile(
@@ -129,13 +131,13 @@ def _retry_after_seconds(response: ClientResponse) -> float | None:
     return min(_MAX_RETRY_AFTER_SECONDS, max(1.0, seconds))
 
 
-def _is_retryable_get_data_error(error: ElcoApiError) -> bool:
+def _is_retryable_read_error(error: ElcoApiError) -> bool:
     """Return whether a failed read can be repeated immediately."""
     if isinstance(error, ElcoConnectionError):
         return error.retryable
     if not isinstance(error, ElcoResponseError) or error.retry_after is not None:
         return False
-    if error.status in _RETRYABLE_GET_DATA_STATUSES:
+    if error.status in _RETRYABLE_READ_STATUSES:
         return True
     return error.status is None and "communication error" in str(error).casefold()
 
@@ -642,17 +644,68 @@ class ElcoApiClient:
     async def async_get_bsb_points(
         self,
         addresses: tuple[str, ...] | None = None,
+        *,
+        command: bool = False,
     ) -> dict[str, Any]:
-        """Fetch the allowlisted read-only BSB parameters."""
+        """Fetch BSB parameters, with bounded resilience for command reads."""
         requested_addresses = addresses or BSB_DISCOVERY_ADDRESSES
+        if not command:
+            return await self._async_get_bsb_points_once(
+                requested_addresses,
+                retry_auth=False,
+            )
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + REQUEST_TIMEOUT
+        last_error: ElcoApiError | None = None
+        for attempt in range(_SAFE_READ_ATTEMPTS):
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                break
+            try:
+                async with asyncio.timeout(remaining):
+                    return await self._async_get_bsb_points_once(
+                        requested_addresses,
+                        retry_auth=True,
+                    )
+            except TimeoutError as err:
+                raise ElcoConnectionError(
+                    "BSB command read exceeded its overall time limit",
+                    timed_out=True,
+                ) from err
+            except (ElcoConnectionError, ElcoResponseError) as err:
+                last_error = err
+                if (
+                    attempt == _SAFE_READ_ATTEMPTS - 1
+                    or not _is_retryable_read_error(err)
+                    or deadline - loop.time() <= _SAFE_READ_RETRY_DELAY_SECONDS
+                ):
+                    raise
+                _LOGGER.debug("Retrying Remocon BSB command read after: %s", err)
+                await asyncio.sleep(_SAFE_READ_RETRY_DELAY_SECONDS)
+
+        if last_error is not None:
+            raise last_error
+        raise ElcoConnectionError(
+            "BSB command read exceeded its overall time limit",
+            timed_out=True,
+        )
+
+    async def _async_get_bsb_points_once(
+        self,
+        requested_addresses: tuple[str, ...],
+        *,
+        retry_auth: bool,
+    ) -> dict[str, Any]:
+        """Fetch BSB parameters once with the requested authentication policy."""
         payload = await self._request_payload(
             "GET",
             BSB_READ_PATH.format(
                 gateway_id=self.gateway_id,
                 addresses=",".join(requested_addresses),
             ),
-            retry_auth=False,
-            invalidate_auth=False,
+            retry_auth=retry_auth,
+            invalidate_auth=retry_auth,
         )
         container = payload.get("data", payload) if isinstance(payload, dict) else payload
         if not isinstance(container, list):
@@ -662,6 +715,50 @@ class ElcoApiClient:
             for item in container
             if isinstance(item, dict) and item.get("address") is not None
         }
+
+    async def async_write_bsb_point(self, point: dict[str, Any], value: float | int) -> None:
+        """Write one reviewed BSB datapoint using Remocon's compare-and-set DTO."""
+        address = str(point.get("address", ""))
+        if address not in BSB_WRITABLE_ADDRESSES:
+            raise ValueError(f"BSB address {address or '<missing>'} is not writable")
+        if not bsb_point_available(point):
+            raise ValueError(f"BSB address {address} is unavailable")
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            raise ValueError("BSB value must be numeric")
+        if not isfinite(value):
+            raise ValueError("BSB value must be finite")
+
+        payload = await self._request_json(
+            "POST",
+            BSB_WRITE_PATH.format(gateway_id=self.gateway_id),
+            body=[
+                {
+                    "address": int(address),
+                    "oldOsv": bool(point.get("osv", False)),
+                    "oldValueAsString": point.get("valueAsString"),
+                    "oldValueAsNumber": point.get("valueAsNumber"),
+                    "newOsv": False,
+                    "newValueAsString": None,
+                    "newValueAsNumber": value,
+                }
+            ],
+        )
+        errors = payload.get("data")
+        if isinstance(errors, list) and errors:
+            error = next(
+                (
+                    item
+                    for item in errors
+                    if isinstance(item, dict) and str(item.get("address")) == address
+                ),
+                errors[0],
+            )
+            if isinstance(error, dict):
+                code = error.get("bsbErrorCode") or error.get("commErrorCode")
+                detail = f" (controller error {code})" if code not in (None, 0, "0") else ""
+            else:
+                detail = ""
+            raise ElcoResponseError(f"BSB address {address} rejected the write{detail}")
 
     async def async_get_data(
         self,
@@ -675,7 +772,7 @@ class ElcoApiClient:
         deadline = loop.time() + REQUEST_TIMEOUT * max(1, len(zones_to_fetch))
         last_error: ElcoApiError | None = None
 
-        for attempt in range(_GET_DATA_ATTEMPTS):
+        for attempt in range(_SAFE_READ_ATTEMPTS):
             remaining = deadline - loop.time()
             if remaining <= 0:
                 break
@@ -690,13 +787,13 @@ class ElcoApiClient:
             except (ElcoConnectionError, ElcoResponseError) as err:
                 last_error = err
                 if (
-                    attempt == _GET_DATA_ATTEMPTS - 1
-                    or not _is_retryable_get_data_error(err)
-                    or deadline - loop.time() <= _GET_DATA_RETRY_DELAY_SECONDS
+                    attempt == _SAFE_READ_ATTEMPTS - 1
+                    or not _is_retryable_read_error(err)
+                    or deadline - loop.time() <= _SAFE_READ_RETRY_DELAY_SECONDS
                 ):
                     raise
                 _LOGGER.debug("Retrying complete Remocon GetData after: %s", err)
-                await asyncio.sleep(_GET_DATA_RETRY_DELAY_SECONDS)
+                await asyncio.sleep(_SAFE_READ_RETRY_DELAY_SECONDS)
 
         if last_error is not None:
             raise last_error
@@ -750,12 +847,24 @@ class ElcoApiClient:
         *,
         comfort: float,
         reduced: float,
+        cooling: bool = False,
     ) -> None:
-        """Write heating comfort and reduced temperatures as one atomic command."""
-        zone.comfort_temperature.validate(comfort)
-        zone.reduced_temperature.validate(reduced)
-        if comfort < reduced:
-            raise ValueError("Comfort temperature cannot be below reduced temperature")
+        """Write active heating or cooling temperatures as one atomic command."""
+        active_cooling = zone.cooling_active is True
+        if cooling != active_cooling:
+            requested = "Cooling" if cooling else "Heating"
+            active = "cooling" if active_cooling else "heating"
+            raise ValueError(
+                f"{requested} temperatures can only be changed while the zone is in {active} mode"
+            )
+        comfort_variable = zone.cooling_comfort_temperature if cooling else zone.comfort_temperature
+        reduced_variable = zone.cooling_reduced_temperature if cooling else zone.reduced_temperature
+        comfort_variable.validate(comfort)
+        reduced_variable.validate(reduced)
+        if cooling and comfort > reduced:
+            raise ValueError("Cooling comfort temperature cannot exceed reduced temperature")
+        if not cooling and comfort < reduced:
+            raise ValueError("Heating comfort temperature cannot be below reduced temperature")
         await self._request_json(
             "POST",
             SET_TEMPERATURE_PATH.format(gateway_id=self.gateway_id),
