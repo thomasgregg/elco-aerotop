@@ -2,6 +2,10 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.3.13
+
+- Fix the integration icon in HACS by using an absolute image URL in the rendered README.
+
 ## 0.3.12
 
 - Add a writable holiday operating-level select for Reduced/Frost protection and disabled-by-
