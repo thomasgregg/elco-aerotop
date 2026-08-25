@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="custom_components/elco_aerotop/brand/icon.png" width="160" alt="ELCO Aerotop heat pump icon">
+  <img src="https://raw.githubusercontent.com/thomasgregg/elco-aerotop/main/custom_components/elco_aerotop/brand/icon.png" width="160" alt="ELCO Aerotop heat pump icon">
 </p>
 
 <h1 align="center">ELCO Aerotop for Home Assistant</h1>
