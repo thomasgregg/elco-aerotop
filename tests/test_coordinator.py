@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from datetime import UTC, date, datetime
 from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -87,6 +88,21 @@ from custom_components.elco_aerotop.models import (  # noqa: E402
     ZoneState,
 )
 
+HOLIDAY_START = datetime(2027, 8, 30, 12, tzinfo=UTC)
+HOLIDAY_END = date(2027, 9, 4)
+
+
+def _holiday(*, end: date = HOLIDAY_END, deleted: bool = False) -> dict:
+    return {
+        "index": 0,
+        "fromAsIso": "2027-08-30T12:00:00+00:00",
+        "toAsIso": f"{end.isoformat()}T00:00:00+00:00",
+        "added": False,
+        "changed": False,
+        "deleted": deleted,
+        "osv": False,
+    }
+
 
 class FakeHass:
     def async_create_background_task(self, coro, _name: str):
@@ -104,6 +120,7 @@ def _data(
     cooling_active: bool = False,
     cooling_comfort: float = 24,
     cooling_reduced: float = 28,
+    holidays: list[dict] | None = None,
 ) -> ElcoData:
     plant = PlantState.parse(
         {
@@ -131,6 +148,7 @@ def _data(
             },
             "isCoolingActive": cooling_active,
             "mode": {"value": zone_mode, "allowedOptions": [0, 1, 2, 3]},
+            "holidays": [] if holidays is None else holidays,
         },
     )
     return ElcoData("GATEWAY", plant, {1: zone})
@@ -216,6 +234,12 @@ class FakeApi:
     async def async_set_zone_mode(self, *args, **kwargs) -> None:
         self._record_write("zone_mode", args, kwargs)
 
+    async def async_set_zone_holiday(self, *args, **kwargs) -> None:
+        self._record_write("zone_holiday", args, kwargs)
+
+    async def async_cancel_zone_holiday(self, *args, **kwargs) -> None:
+        self._record_write("cancel_zone_holiday", args, kwargs)
+
     async def async_get_bsb_points(
         self,
         addresses,
@@ -272,6 +296,14 @@ def _multi_zone_data() -> ElcoData:
             lambda coordinator: coordinator.async_set_zone_temperature(1, "comfort", 24),
         ),
         ("zone_mode", lambda coordinator: coordinator.async_set_zone_mode(1, 2)),
+        (
+            "zone_holiday",
+            lambda coordinator: coordinator.async_set_zone_holiday(
+                1,
+                HOLIDAY_END,
+                starts_at=HOLIDAY_START,
+            ),
+        ),
     ],
 )
 async def test_every_write_cancels_discovery_before_gateway_access(write_name, write) -> None:
@@ -302,8 +334,13 @@ async def test_every_write_cancels_discovery_before_gateway_access(write_name, w
         lambda coordinator: coordinator.async_set_dhw(comfort=48),
         lambda coordinator: coordinator.async_set_zone_temperature(1, "comfort", 24),
         lambda coordinator: coordinator.async_set_zone_mode(1, 2),
+        lambda coordinator: coordinator.async_set_zone_holiday(
+            1,
+            HOLIDAY_END,
+            starts_at=HOLIDAY_START,
+        ),
     ],
-    ids=["dhw", "zone-temperature", "zone-mode"],
+    ids=["dhw", "zone-temperature", "zone-mode", "zone-holiday"],
 )
 async def test_every_pre_write_read_fetches_one_zone_uncached(write) -> None:
     api = FakeApi([_multi_zone_data()])
@@ -326,8 +363,16 @@ async def test_every_pre_write_read_fetches_one_zone_uncached(write) -> None:
         ),
         (lambda coordinator: coordinator.async_set_dhw(comfort=48), _data(dhw_comfort=48)),
         (lambda coordinator: coordinator.async_set_zone_mode(1, 2), _data(zone_mode=2)),
+        (
+            lambda coordinator: coordinator.async_set_zone_holiday(
+                1,
+                HOLIDAY_END,
+                starts_at=HOLIDAY_START,
+            ),
+            _data(holidays=[_holiday()]),
+        ),
     ],
-    ids=["zone-temperature", "dhw", "zone-mode"],
+    ids=["zone-temperature", "dhw", "zone-mode", "zone-holiday"],
 )
 async def test_ambiguous_write_is_confirmed_by_fresh_read(write, reconciled_data) -> None:
     api = FakeApi(
@@ -342,6 +387,49 @@ async def test_ambiguous_write_is_confirmed_by_fresh_read(write, reconciled_data
     assert api.get_data_arguments == [([1], False), ([1], False)]
     assert len(api.write_calls) == 1
     coordinator.async_request_refresh.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_cancel_holiday_preserves_write_policy_and_refreshes() -> None:
+    api = FakeApi([_data(holidays=[_holiday()])])
+    coordinator = _coordinator(api)
+    coordinator.async_request_refresh = AsyncMock()
+
+    await coordinator.async_cancel_zone_holiday(1)
+
+    assert api.get_data_arguments == [([1], False)]
+    assert api.write_calls[0][0] == "cancel_zone_holiday"
+    coordinator.async_request_refresh.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_cancel_holiday_is_confirmed_by_fresh_read() -> None:
+    api = FakeApi(
+        [_data(holidays=[_holiday()]), _data(holidays=[])],
+        write_responses=[ElcoConnectionError("response lost")],
+    )
+    coordinator = _coordinator(api)
+    coordinator.async_request_refresh = AsyncMock()
+
+    await coordinator.async_cancel_zone_holiday(1)
+
+    assert api.get_data_arguments == [([1], False), ([1], False)]
+    assert len(api.write_calls) == 1
+    coordinator.async_request_refresh.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_cancel_holiday_without_current_period_is_rejected_before_write() -> None:
+    api = FakeApi([_data(holidays=[])])
+    coordinator = _coordinator(api)
+    coordinator.async_request_refresh = AsyncMock()
+
+    with pytest.raises(HomeAssistantError, match="No current holiday"):
+        await coordinator.async_cancel_zone_holiday(1)
+
+    assert api.get_data_arguments == [([1], False)]
+    assert api.write_calls == []
+    coordinator.async_request_refresh.assert_not_awaited()
 
 
 @pytest.mark.asyncio

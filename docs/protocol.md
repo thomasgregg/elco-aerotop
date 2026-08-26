@@ -144,8 +144,16 @@ A heating-zone mode uses:
 POST /R2/PlantHomeBsb/SetData/{gateway}
 ```
 
-The body intentionally includes only the DHW values required by the endpoint, the selected zone
-and mode, and `viewModel.zoneNumber`. Unrelated writable fields are omitted.
+The body contains complete fresh `plantData` and `zoneData` snapshots plus
+`viewModel.zoneNumber`. A mode change mutates only `zoneData.mode.value` inside that copied
+snapshot.
+
+Remocon's current-holiday workflow uses the same endpoint and complete snapshot. Creating a period
+appends a holiday DTO with `index`, `fromAsIso` set to now, the inclusive `toAsIso` final day,
+`added: true`, and the remaining command flags false. Updating changes only `toAsIso` and sets
+`changed: true`. Cancelling sets `deleted: true`. Create/update also selects verified Automatic
+mode `1`; cancellation preserves the resulting mode. Home Assistant deliberately does not expose
+future start dates or arbitrary access to the controller's eight underlying slots.
 
 Four reviewed heating-circuit settings use Remocon's BSB compare-and-set endpoint:
 

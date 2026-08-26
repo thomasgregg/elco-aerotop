@@ -6,7 +6,7 @@ import asyncio
 import logging
 import re
 from copy import deepcopy
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time
 from email.utils import parsedate_to_datetime
 from html import unescape
 from math import isfinite
@@ -54,6 +54,7 @@ from .const import (
     USER_AGENT,
     ZONE_DATA_ITEM_IDS,
 )
+from .control_mapping import ZONE_MODE_AUTOMATIC
 from .models import ElcoData, PlantState, ZoneState, bsb_point_available
 
 _LOGGER = logging.getLogger(__name__)
@@ -916,23 +917,125 @@ class ElcoApiClient:
         if allowed_modes and mode not in allowed_modes:
             raise ValueError(f"Unsupported zone mode: {mode}")
 
-        plant_data = deepcopy(plant.raw)
-        zone_data = deepcopy(zone.raw)
-        plant_data.setdefault("gatewayId", self.gateway_id)
-        zone_data.setdefault("gatewayId", self.gateway_id)
-        zone_data["zone"] = zone.number
+        plant_data, zone_data = self._set_data_snapshots(plant, zone)
         raw_mode = zone_data.get("mode")
         if not isinstance(raw_mode, dict):
             raw_mode = {}
             zone_data["mode"] = raw_mode
         raw_mode["value"] = mode
+        await self._post_set_data(plant_data, zone_data, zone.number)
 
+    async def async_set_zone_holiday(
+        self,
+        plant: PlantState,
+        zone: ZoneState,
+        *,
+        ends_on: date,
+        starts_at: datetime,
+    ) -> None:
+        """Create or update Remocon's current holiday and force Automatic mode."""
+        if starts_at.tzinfo is None or starts_at.utcoffset() is None:
+            raise ValueError("Holiday start time must include a time zone")
+        if ends_on < starts_at.date():
+            raise ValueError("Holiday final day cannot be in the past")
+        allowed_modes = {option.value for option in zone.mode.options}
+        if allowed_modes and ZONE_MODE_AUTOMATIC not in allowed_modes:
+            raise ValueError("Automatic zone mode is unavailable")
+
+        plant_data, zone_data = self._set_data_snapshots(plant, zone)
+        holidays = zone_data.get("holidays")
+        if not isinstance(holidays, list):
+            raise ValueError("Holiday periods are unavailable")
+        current = self._current_raw_holiday(holidays)
+        final_at = datetime.combine(ends_on, time.min, tzinfo=starts_at.tzinfo)
+        if current is None:
+            if any(
+                isinstance(holiday, dict)
+                and holiday.get("deleted") is not True
+                and holiday.get("osv") is True
+                for holiday in holidays
+            ):
+                raise ValueError("Inactive holiday-slot reuse has not been verified")
+            holidays.append(
+                {
+                    "index": len(holidays),
+                    "fromAsEpoch": 0,
+                    "toAsEpoch": 0,
+                    "fromAsIso": starts_at.replace(microsecond=0).isoformat(),
+                    "toAsIso": final_at.isoformat(),
+                    "added": True,
+                    "deleted": False,
+                    "changed": False,
+                    "osv": False,
+                }
+            )
+        else:
+            current["changed"] = True
+            current["toAsIso"] = final_at.isoformat()
+
+        raw_mode = zone_data.get("mode")
+        if not isinstance(raw_mode, dict):
+            raw_mode = {}
+            zone_data["mode"] = raw_mode
+        raw_mode["value"] = ZONE_MODE_AUTOMATIC
+        await self._post_set_data(plant_data, zone_data, zone.number)
+
+    async def async_cancel_zone_holiday(
+        self,
+        plant: PlantState,
+        zone: ZoneState,
+    ) -> None:
+        """Mark Remocon's current holiday deleted while preserving the zone mode."""
+        plant_data, zone_data = self._set_data_snapshots(plant, zone)
+        holidays = zone_data.get("holidays")
+        if not isinstance(holidays, list):
+            raise ValueError("Holiday periods are unavailable")
+        current = self._current_raw_holiday(holidays)
+        if current is None:
+            raise ValueError("No current holiday to cancel")
+        current["deleted"] = True
+        await self._post_set_data(plant_data, zone_data, zone.number)
+
+    def _set_data_snapshots(
+        self,
+        plant: PlantState,
+        zone: ZoneState,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Copy and complete the plant/zone snapshots required by SetData."""
+        plant_data = deepcopy(plant.raw)
+        zone_data = deepcopy(zone.raw)
+        plant_data.setdefault("gatewayId", self.gateway_id)
+        zone_data.setdefault("gatewayId", self.gateway_id)
+        zone_data["zone"] = zone.number
+        return plant_data, zone_data
+
+    @staticmethod
+    def _current_raw_holiday(holidays: list[Any]) -> dict[str, Any] | None:
+        """Return the first usable raw period, matching the Remocon page model."""
+        return next(
+            (
+                holiday
+                for holiday in holidays
+                if isinstance(holiday, dict)
+                and holiday.get("deleted") is not True
+                and holiday.get("osv") is not True
+            ),
+            None,
+        )
+
+    async def _post_set_data(
+        self,
+        plant_data: dict[str, Any],
+        zone_data: dict[str, Any],
+        zone_number: int,
+    ) -> None:
+        """Send one complete PlantHomeBsb SetData command."""
         await self._request_json(
             "POST",
             SET_DATA_PATH.format(gateway_id=self.gateway_id),
             body={
                 "plantData": plant_data,
                 "zoneData": zone_data,
-                "viewModel": {"zoneNumber": zone.number},
+                "viewModel": {"zoneNumber": zone_number},
             },
         )

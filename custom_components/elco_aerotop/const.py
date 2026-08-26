@@ -18,8 +18,10 @@ CONF_SCAN_INTERVAL: Final = "scan_interval"
 
 PLATFORMS: Final = [
     "binary_sensor",
+    "button",
     "calendar",
     "climate",
+    "date",
     "number",
     "select",
     "sensor",

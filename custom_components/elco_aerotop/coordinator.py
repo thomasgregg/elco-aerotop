@@ -7,7 +7,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -39,6 +39,8 @@ from .const import (
     MENU_ITEM_SLP_IDS,
     MENU_ITEM_VMC_IDS,
 )
+from .control_mapping import ZONE_MODE_AUTOMATIC
+from .holiday import current_holiday
 from .models import ElcoData, ReadOnlyDiscovery
 
 _LOGGER = logging.getLogger(__name__)
@@ -630,6 +632,47 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         zone = data.zones.get(zone_number)
         return zone is not None and zone.mode.value == mode
 
+    @staticmethod
+    def _zone_holiday_matches(
+        data: ElcoData,
+        zone_number: int,
+        ends_on: date,
+        target_index: int | None,
+    ) -> bool:
+        """Return whether a fresh read confirms the requested current holiday."""
+        zone = data.zones.get(zone_number)
+        if zone is None or zone.mode.value != ZONE_MODE_AUTOMATIC:
+            return False
+        return any(
+            holiday.end == ends_on
+            and (target_index is None or holiday.index == target_index)
+            and not holiday.deleted
+            and not holiday.out_of_service
+            for holiday in zone.holidays
+        )
+
+    @staticmethod
+    def _zone_holiday_cancelled(
+        data: ElcoData,
+        zone_number: int,
+        target_index: int | None,
+        target_start: date,
+        target_end: date,
+    ) -> bool:
+        """Return whether a fresh read confirms that the targeted holiday is inactive."""
+        zone = data.zones.get(zone_number)
+        if zone is None:
+            return False
+        for holiday in zone.holidays:
+            same_period = (
+                holiday.index == target_index
+                if target_index is not None
+                else holiday.start == target_start and holiday.end == target_end
+            )
+            if same_period:
+                return holiday.deleted or holiday.out_of_service
+        return True
+
     async def _async_write_with_reconciliation(
         self,
         *,
@@ -892,6 +935,88 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
                             mode,
                         ),
                         description=f"Heating zone {zone_number} mode change",
+                    )
+                await self._async_refresh_after_write()
+                if write_failure is not None:
+                    raise write_failure
+            except KeyError as err:
+                raise HomeAssistantError(f"Heating zone {zone_number} is unavailable") from err
+            except ValueError as err:
+                raise HomeAssistantError(str(err)) from err
+            except ElcoAuthenticationError as err:
+                raise ConfigEntryAuthFailed from err
+            except ElcoApiError as err:
+                raise HomeAssistantError(str(err)) from err
+
+    async def async_set_zone_holiday(
+        self,
+        zone_number: int,
+        ends_on: date,
+        *,
+        starts_at: datetime,
+    ) -> None:
+        """Safely create or update Remocon's current holiday for one zone."""
+        async with self._command_lock:
+            try:
+                await self._async_cancel_deferred_discovery()
+                async with self._gateway_lock:
+                    fresh = await self._async_fresh_data([zone_number])
+                    zone = fresh.zones[zone_number]
+                    current = current_holiday(zone)
+                    raw_holidays = zone.raw.get("holidays")
+                    if not isinstance(raw_holidays, list):
+                        raise HomeAssistantError("Holiday periods are unavailable")
+                    target_index = current.index if current is not None else len(raw_holidays)
+                    write_failure = await self._async_write_with_reconciliation(
+                        write=lambda: self.api.async_set_zone_holiday(
+                            fresh.plant,
+                            zone,
+                            ends_on=ends_on,
+                            starts_at=starts_at,
+                        ),
+                        reconcile=lambda: self._async_fresh_data([zone_number]),
+                        matches=lambda state: self._zone_holiday_matches(
+                            state,
+                            zone_number,
+                            ends_on,
+                            target_index,
+                        ),
+                        description=f"Heating zone {zone_number} holiday change",
+                    )
+                await self._async_refresh_after_write()
+                if write_failure is not None:
+                    raise write_failure
+            except KeyError as err:
+                raise HomeAssistantError(f"Heating zone {zone_number} is unavailable") from err
+            except ValueError as err:
+                raise HomeAssistantError(str(err)) from err
+            except ElcoAuthenticationError as err:
+                raise ConfigEntryAuthFailed from err
+            except ElcoApiError as err:
+                raise HomeAssistantError(str(err)) from err
+
+    async def async_cancel_zone_holiday(self, zone_number: int) -> None:
+        """Safely cancel Remocon's current holiday for one zone."""
+        async with self._command_lock:
+            try:
+                await self._async_cancel_deferred_discovery()
+                async with self._gateway_lock:
+                    fresh = await self._async_fresh_data([zone_number])
+                    zone = fresh.zones[zone_number]
+                    holiday = current_holiday(zone)
+                    if holiday is None:
+                        raise HomeAssistantError("No current holiday to cancel")
+                    write_failure = await self._async_write_with_reconciliation(
+                        write=lambda: self.api.async_cancel_zone_holiday(fresh.plant, zone),
+                        reconcile=lambda: self._async_fresh_data([zone_number]),
+                        matches=lambda state: self._zone_holiday_cancelled(
+                            state,
+                            zone_number,
+                            holiday.index,
+                            holiday.start,
+                            holiday.end,
+                        ),
+                        description=f"Heating zone {zone_number} holiday cancellation",
                     )
                 await self._async_refresh_after_write()
                 if write_failure is not None:

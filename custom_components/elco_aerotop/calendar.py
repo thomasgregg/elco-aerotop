@@ -12,6 +12,7 @@ from homeassistant.util import dt as dt_util
 
 from .coordinator import ElcoDataUpdateCoordinator
 from .entity import ElcoAerotopEntity
+from .holiday import has_holiday_source
 from .models import BsbHoliday, ElcoData
 
 
@@ -99,5 +100,5 @@ async def async_setup_entry(
     async_add_entities(
         ElcoHolidayCalendar(coordinator, zone_number)
         for zone_number, zone in coordinator.data.zones.items()
-        if "holidays" in zone.raw
+        if has_holiday_source(zone)
     )

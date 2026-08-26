@@ -2,6 +2,13 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.3.14
+
+- Add per-zone **Holiday until** date entities and **Cancel holiday** buttons matching Remocon's
+  immediate current-holiday workflow, with complete fresh snapshot preservation, Automatic-mode
+  side effects, serialized single-write handling, ambiguous-response reconciliation, and an
+  explicit boundary excluding unverified future-start/eight-slot planning.
+
 ## 0.3.13
 
 - Fix the integration icon in HACS by using an absolute image URL in the rendered README.

@@ -73,8 +73,10 @@ whole payloads as state attributes.
 
 BSB holiday periods are parsed from the per-zone `holidays` array and exposed through a read-only
 Home Assistant calendar. Current `fromAsIso`/`toAsIso` and older `from`/`to` field names are
-accepted. Holiday writes remain disabled until populated read/write captures verify index reuse,
-date normalization, and create/update/delete round trips.
+accepted. When the core zone response contains a holiday list, a date entity and cancel button
+reproduce Remocon's current-holiday create/update/delete flow. Future-start and arbitrary slot
+editing remain disabled until populated round trips verify index reuse, date normalization,
+overlap handling, and all eight controller slots.
 
 Discovery does not authorize writes. A new writable field requires a separately reviewed endpoint
 contract, an anonymized read/write fixture, validation against gateway-provided limits/options,

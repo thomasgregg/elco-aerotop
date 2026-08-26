@@ -49,6 +49,7 @@ directly to the heat pump over the local network.
 | Monitor the system | Temperatures, pressure, flow values, operating state, and heat demand |
 | Control room heating and cooling | A thermostat for each supported zone, with cooling controls while Remocon reports cooling active |
 | Control hot water | A native water-heater entity with target temperature and operating mode |
+| Manage the current holiday | Read holiday periods in a calendar and set or cancel Remocon's immediate holiday |
 | Tune heating behavior | Allowlisted controls for holiday level, frost setpoint, heating curve, and summer/winter limit |
 | Build automations | Use temperatures, demand, operating state, and holiday periods as inputs |
 | Find problems | Controller errors, probe faults, maintenance codes, and appliance-health data |
@@ -238,6 +239,7 @@ The native and advanced controls are two views of those same validated values:
 | Water-heater target | DHW comfort temperature | DHW reduced temperature and current mode |
 | Water-heater operation/on/off | DHW mode | DHW comfort and reduced temperatures |
 | Advanced number/select | Its corresponding value above | Same companions as the native entity |
+| Holiday-until date / cancel button | Current zone holiday period; setting also selects Automatic mode | Complete fresh plant and zone snapshots |
 | Holiday level and BSB tuning numbers | One exact allowlisted BSB address | Fresh compare-and-set values; controller readback required |
 
 All writable temperature numbers declare Home Assistant's temperature device class and native
@@ -246,6 +248,11 @@ degrees Celsius unit, enabling correct temperature semantics and configured-unit
 The integration deliberately does not expose an arbitrary BSB-address write service. New writable
 parameters should only be added after their request shape and controller behavior have been
 captured and tested.
+
+The holiday date and cancel button reproduce Remocon's current-holiday workflow, not the
+controller's underlying eight-slot table. Setting a final day starts the holiday immediately,
+uses that day inclusively, and changes the zone to Automatic. Cancelling does not restore the mode
+that was active before the holiday.
 
 The thermostat exposes `cool` and writes cooling comfort/reduced values only while a fresh
 controller snapshot reports cooling as active. It does not use `HVACMode.COOL` to switch the plant

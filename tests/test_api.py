@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
+from datetime import UTC, date, datetime, timedelta, timezone
 from importlib import import_module
 from typing import Any
 from unittest.mock import AsyncMock
@@ -22,9 +23,10 @@ from custom_components.elco_aerotop.const import (
     BSB_WRITE_PATH,
     GET_DATA_PATH,
     REQUEST_TIMEOUT,
+    SET_DATA_PATH,
     SET_TEMPERATURE_PATH,
 )
-from custom_components.elco_aerotop.models import ZoneState
+from custom_components.elco_aerotop.models import PlantState, ZoneState
 
 api_module = import_module("custom_components.elco_aerotop.api")
 
@@ -953,3 +955,158 @@ async def test_zone_mode_write_preserves_complete_set_data_payload() -> None:
     }
     assert request_body["zoneData"]["holidays"] == data.zones[1].raw["holidays"]
     assert request_body["viewModel"] == {"zoneNumber": 1}
+
+
+@pytest.mark.asyncio
+async def test_zone_holiday_create_matches_remocon_current_holiday_payload() -> None:
+    session = FakeSession(
+        [
+            *login_responses(),
+            FakeResponse(json_data=get_data_payload()),
+            FakeResponse(json_data={"ok": True, "data": {}}),
+        ]
+    )
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+    data = await client.async_get_data([1], use_cache=False)
+    zone = ZoneState.parse(1, {**data.zones[1].raw, "holidays": []})
+    starts_at = datetime(
+        2027,
+        8,
+        30,
+        14,
+        15,
+        tzinfo=timezone(timedelta(hours=2)),
+    )
+
+    await client.async_set_zone_holiday(
+        data.plant,
+        zone,
+        ends_on=date(2027, 9, 4),
+        starts_at=starts_at,
+    )
+
+    assert session.calls[-1][1].endswith(SET_DATA_PATH.format(gateway_id="GATEWAY"))
+    request_body = session.calls[-1][2]["json"]
+    assert request_body["plantData"] == {**data.plant.raw, "gatewayId": "GATEWAY"}
+    assert request_body["zoneData"] == {
+        **zone.raw,
+        "gatewayId": "GATEWAY",
+        "zone": 1,
+        "mode": {"value": 1, "allowedOptions": [0, 1, 2, 3]},
+        "holidays": [
+            {
+                "index": 0,
+                "fromAsEpoch": 0,
+                "toAsEpoch": 0,
+                "fromAsIso": "2027-08-30T14:15:00+02:00",
+                "toAsIso": "2027-09-04T00:00:00+02:00",
+                "added": True,
+                "deleted": False,
+                "changed": False,
+                "osv": False,
+            }
+        ],
+    }
+    assert request_body["viewModel"] == {"zoneNumber": 1}
+
+
+@pytest.mark.asyncio
+async def test_zone_holiday_update_changes_only_end_flags_and_automatic_mode() -> None:
+    session = FakeSession(
+        [
+            *login_responses(),
+            FakeResponse(json_data=get_data_payload()),
+            FakeResponse(json_data={"ok": True, "data": {}}),
+        ]
+    )
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+    data = await client.async_get_data([1], use_cache=False)
+    zone = ZoneState.parse(
+        1,
+        {
+            **data.zones[1].raw,
+            "mode": {"value": 2, "allowedOptions": [0, 1, 2, 3]},
+        },
+    )
+
+    await client.async_set_zone_holiday(
+        data.plant,
+        zone,
+        ends_on=date(2027, 9, 8),
+        starts_at=datetime(2027, 8, 30, 15, tzinfo=timezone(timedelta(hours=2))),
+    )
+
+    holiday = session.calls[-1][2]["json"]["zoneData"]["holidays"][0]
+    assert holiday == {
+        **zone.raw["holidays"][0],
+        "changed": True,
+        "toAsIso": "2027-09-08T00:00:00+02:00",
+    }
+    assert session.calls[-1][2]["json"]["zoneData"]["mode"]["value"] == 1
+
+
+@pytest.mark.asyncio
+async def test_zone_holiday_cancel_marks_current_deleted_and_preserves_mode() -> None:
+    session = FakeSession(
+        [
+            *login_responses(),
+            FakeResponse(json_data=get_data_payload()),
+            FakeResponse(json_data={"ok": True, "data": {}}),
+        ]
+    )
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+    data = await client.async_get_data([1], use_cache=False)
+    zone = ZoneState.parse(
+        1,
+        {
+            **data.zones[1].raw,
+            "mode": {"value": 2, "allowedOptions": [0, 1, 2, 3]},
+        },
+    )
+
+    await client.async_cancel_zone_holiday(data.plant, zone)
+
+    zone_payload = session.calls[-1][2]["json"]["zoneData"]
+    assert zone_payload["holidays"][0] == {
+        **zone.raw["holidays"][0],
+        "deleted": True,
+    }
+    assert zone_payload["mode"]["value"] == 2
+
+
+@pytest.mark.asyncio
+async def test_zone_holiday_rejects_past_end_before_network_access() -> None:
+    client = ElcoApiClient(FakeSession([]), "user", "pass", "gateway", "https://example.test")
+    plant = get_data_payload()["data"]["plantData"]
+    zone = get_data_payload()["data"]["zoneData"]
+
+    with pytest.raises(ValueError, match="cannot be in the past"):
+        await client.async_set_zone_holiday(
+            PlantState.parse(plant),
+            ZoneState.parse(1, zone),
+            ends_on=date(2027, 8, 29),
+            starts_at=datetime(2027, 8, 30, 12, tzinfo=UTC),
+        )
+
+
+@pytest.mark.asyncio
+async def test_zone_holiday_rejects_unverified_inactive_slot_reuse() -> None:
+    client = ElcoApiClient(FakeSession([]), "user", "pass", "gateway", "https://example.test")
+    payload = get_data_payload()["data"]
+    zone_raw = {
+        **payload["zoneData"],
+        "holidays": [
+            {
+                **payload["zoneData"]["holidays"][0],
+                "osv": True,
+            }
+        ],
+    }
+
+    with pytest.raises(ValueError, match="slot reuse has not been verified"):
+        await client.async_set_zone_holiday(
+            PlantState.parse(payload["plantData"]),
+            ZoneState.parse(1, zone_raw),
+            ends_on=date(2027, 9, 4),
+            starts_at=datetime(2027, 8, 30, 12, tzinfo=UTC),
+        )

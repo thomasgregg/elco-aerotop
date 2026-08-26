@@ -44,8 +44,9 @@ Testing is especially useful for:
 - populated holiday periods, including active, future, deleted, and out-of-service entries;
 - heating, cooling, and DHW weekly schedules with different day/time layouts.
 
-Holiday calendars and schedule discovery are read-only. Schedule editing is not implemented, and
-holiday editing remains deliberately disabled. To report results, open a
+Holiday calendars and schedule discovery are read-only. The separate holiday date and cancel
+button reproduce Remocon's current-holiday workflow; the controller's eight-slot planner is not
+exposed. Schedule editing is not implemented. To report results, open a
 [GitHub issue](https://github.com/thomasgregg/elco-aerotop/issues) with the controller model,
 firmware, steps, expected/observed values, and a carefully inspected redacted Home Assistant
 diagnostic export. Never share Remocon credentials, cookies, tokens, gateway identifiers, serial
@@ -56,6 +57,7 @@ numbers, addresses, or other personal data.
 | Entity group | Section | Default | Why |
 |---|---|:---:|---|
 | Zone thermostat and domestic hot water | Controls | Enabled | Primary user-facing controls |
+| Current holiday date and cancel button | Controls | Enabled | Native Remocon holiday workflow |
 | Zone/DHW and cooling reduced temperatures | Configuration | Enabled | Independent stored setpoints not represented by the native controls |
 | Duplicate comfort numbers and mode selects | Configuration | Disabled | Compatibility and advanced access without duplicating primary controls |
 | Holiday operating-level select | Configuration | Enabled | Small, reversible controller setting associated with holiday calendars |
@@ -215,17 +217,26 @@ table that represent temperatures use the absolute-temperature device class.
 | Entity | Typical entity ID | Default | Created when | Access |
 |---|---|:---:|---|---|
 | Zone `<zone>` holidays | `calendar.<device>_zone_<zone>_holidays` | Enabled | Native BSB zone response includes holidays | Read-only |
+| Zone `<zone>` holiday until | `date.<device>_zone_<zone>_holiday_until` | Enabled | Native BSB zone response contains a holiday list | Read/write |
+| Zone `<zone>` cancel holiday | `button.<device>_zone_<zone>_cancel_holiday` | Enabled | Native BSB zone response contains a holiday list; available while a usable period exists | Write |
 
 Each calendar contains every valid zone holiday. Deleted and out-of-service periods are omitted.
 ELCO's final date is inclusive while Home Assistant calendar ends are exclusive, so the
 integration adds one day when presenting an event. Holiday operating level says whether the
 periods use Reduced or Frost protection.
 
-Holiday-period editing is intentionally absent. The observed period write sends complete
-plant/zone state and forces Automatic mode, so create/update/delete must be verified on a populated
-gateway first. The separate holiday operating-level select changes only Reduced versus Frost
-protection. The calendar conversion and schedule discovery also need reports from real populated
-controllers; see [Testing status and how to help](#testing-status-and-how-to-help).
+Setting **Holiday until** creates a holiday beginning at the current Home Assistant local time, or
+changes the current period's final day. The final day is inclusive, past dates are
+rejected, and the write changes the zone to Automatic just like Remocon. **Cancel holiday** marks
+the current period deleted and deliberately leaves the resulting zone mode unchanged; it does not
+restore the pre-holiday mode. Both commands preserve complete fresh plant/zone snapshots, use the
+normal serialized single-write/reconciliation policy, and refresh immediately.
+
+These two entities address only Remocon's first/current holiday. They do not expose future start
+dates, slot selection, overlaps, or the controller's underlying eight-slot planner. The separate
+holiday operating-level select changes only Reduced versus Frost protection. Calendar conversion,
+current-holiday writes, and schedule discovery still need reports from populated controllers; see
+[Testing status and how to help](#testing-status-and-how-to-help).
 
 ## Diagnostics enabled by default
 
