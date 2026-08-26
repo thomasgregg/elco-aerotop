@@ -214,6 +214,9 @@ table that represent temperatures use the absolute-temperature device class.
 
 ## Holiday calendars
 
+See [Holiday periods in Home Assistant](holidays.md) for the user-facing workflow, the reason the
+calendar is read-only, controller side effects, operating levels, and a native dashboard example.
+
 | Entity | Typical entity ID | Default | Created when | Access |
 |---|---|:---:|---|---|
 | Zone `<zone>` holidays | `calendar.<device>_zone_<zone>_holidays` | Enabled | Native BSB zone response includes holidays | Read-only |

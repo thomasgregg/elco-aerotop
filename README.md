@@ -19,6 +19,7 @@
 - [Overview](#overview)
 - [What you can do](#what-you-can-do)
 - [Entities](#entities)
+- [Holidays](#holidays)
 - [How data is discovered](#how-data-is-discovered)
 - [Installation](#installation)
 - [Home Assistant setup](#home-assistant-setup)
@@ -97,6 +98,22 @@ integration most recently completed a core Remocon data capture, including succe
 values did not change. Remocon's **Connectivity Gateway** software
 value and the integration's **Gateway firmware** value both come from `gwFwVer`; the integration
 creates one version sensor and also reuses that value in Home Assistant's device information.
+
+## Holidays
+
+Holiday support deliberately separates **viewing** from **writing**. Each zone's Home Assistant
+calendar is a read-only view of the valid holiday periods returned by the ELCO controller. The
+separate operating-level select, **Holiday until** date, and **Cancel holiday** button provide the
+reviewed write path for Remocon's immediate/current-holiday workflow.
+
+Setting a final day starts a new holiday now or changes the current holiday's inclusive final day,
+and changes the zone to Automatic mode just like Remocon. Cancelling the holiday does not restore
+the mode that was active beforehand. Reduced and Frost protection use different controller
+setpoints and do not mean that heating is completely off.
+
+The integration does not currently expose Remocon's full underlying eight-slot planner. For the
+complete behavior, availability rules, calendar rationale, operating-level explanation, and a
+native Home Assistant dashboard example, see [Holiday periods in Home Assistant](docs/holidays.md).
 
 ## How data is discovered
 

@@ -2,6 +2,12 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## Unreleased
+
+- Add a dedicated holiday guide covering the read-only calendar design, current-holiday controls,
+  Reduced/Frost-protection behavior, eight-slot boundary, availability, and a native Home
+  Assistant dashboard example.
+
 ## 0.3.14
 
 - Add per-zone **Holiday until** date entities and **Cancel holiday** buttons matching Remocon's
