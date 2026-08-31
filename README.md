@@ -41,6 +41,12 @@ The integration uses the structured JSON endpoints behind Remocon.net. It is a *
 integration, so it requires internet access and a working Remocon.net account; it does not connect
 directly to the heat pump over the local network.
 
+> [!IMPORTANT]
+> The integration currently supports the **BSB controller family** (`systemType: 5`), whose Remocon
+> plant URL contains `/R2/BsbPlantDashboard/Index/`. It does not yet support the **GALEVO controller
+> family** (`systemType: 3`), whose plant URL contains `/R2/Plant/Index/`. Compatibility is determined
+> by the controller and gateway family, not by the Aerotop model name alone.
+
 ![ELCO Aerotop heating and hot-water dashboard in Home Assistant](docs/images/home-assistant-dashboard.png)
 
 ## What you can do
@@ -197,7 +203,7 @@ These steps follow the [HACS custom-repository procedure](https://www.hacs.xyz/d
 The gateway ID is normally the final part of a dashboard URL, for example:
 
 ```text
-https://www.remocon-net.remotethermo.com/BsbPlantDashboard/Index/GATEWAY_ID
+https://www.remocon-net.remotethermo.com/R2/BsbPlantDashboard/Index/GATEWAY_ID
 ```
 
 One gateway can only be configured once. Multiple gateways may be added as separate integrations.
@@ -377,13 +383,29 @@ Remove the override after troubleshooting to avoid unnecessary log volume.
 
 ## Compatibility
 
-The integration targets ELCO Aerotop systems exposed through Remocon's BSB plant dashboard. The
-cloud API is undocumented and model capabilities vary, so formal compatibility is still being
-established.
+The integration targets ELCO Aerotop systems exposed through Remocon's BSB plant dashboard. An
+Aerotop product name alone does not establish compatibility: similar installations can use
+different controller and gateway families.
+
+| Controller family | How to identify it | Current status |
+|---|---|---|
+| BSB (`systemType: 5`) | The plant URL contains `/R2/BsbPlantDashboard/Index/` and the gateway exposes `PlantHomeBsb/GetData` | Supported; available entities still depend on the capabilities and values reported by the gateway |
+| GALEVO (`systemType: 3`) | The plant URL contains `/R2/Plant/Index/`; the BSB core endpoint normally returns HTTP 404 | Not currently supported; setup cannot complete because GALEVO uses the separate `dataItems` state and command model |
+
+The cloud API is undocumented and model capabilities vary, so formal compatibility is still being
+established. If the plant uses another URL or controller family, do not assume that setup will work
+solely because the appliance is branded Aerotop.
+
+As an interim option, GALEVO users may test the third-party
+[Ariston integration](https://github.com/fustom/ariston-remotethermo-home-assistant-v3), which has a
+GALEVO backend and accepts a custom API address. The expected ELCO API address is
+`https://www.remocon-net.remotethermo.com/api/v2/`. This combination has not been verified by this
+project, so it should be treated as a possible workaround rather than confirmed compatibility.
 
 When reporting a working or non-working model, include the exact Aerotop model, gateway type,
-firmware version if known, number of heating zones, and which entities were returned. Do not post
-credentials, gateway IDs, serial numbers, or unredacted payloads.
+controller family or plant URL shape, firmware version if known, number of heating zones, and which
+entities were returned. Do not post credentials, gateway IDs, serial numbers, authentication
+tokens, cookies, or unredacted payloads.
 
 ## Development
 
