@@ -64,7 +64,7 @@ class ElcoAerotopConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             await client.async_login()
             await client.async_get_data(use_cache=False)
         finally:
-            session.detach()
+            await session.close()
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Handle the initial user step."""

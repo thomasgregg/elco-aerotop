@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://github.com/thomasgregg/elco-aerotop/actions/workflows/validate.yml"><img src="https://github.com/thomasgregg/elco-aerotop/actions/workflows/validate.yml/badge.svg" alt="Validation status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/thomasgregg/elco-aerotop" alt="MIT License"></a>
-  <img src="https://img.shields.io/badge/HACS-Custom-41BDF5" alt="HACS custom repository">
+  <img src="https://img.shields.io/badge/HACS-Default-41BDF5" alt="HACS Default">
 </p>
 
 ## Contents
@@ -150,26 +150,18 @@ workflow, see [Gateway discovery and anonymized fixtures](docs/discovery.md).
 
 ### Option 1: HACS (recommended)
 
-[![Open your Home Assistant instance and add this repository to HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=thomasgregg&repository=elco-aerotop&category=integration)
+[![Open ELCO Aerotop in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=thomasgregg&repository=elco-aerotop&category=integration)
 
-HACS must already be installed and configured in Home Assistant. Until the default-store listing
-is approved, use the button above or add this repository as a custom repository:
+ELCO Aerotop is included in the HACS default repository list. With HACS installed,
+use the button above or:
 
 1. Open **HACS** in Home Assistant.
-2. Open the three-dot menu in the upper-right corner and choose **Custom repositories**.
-3. Enter this repository URL:
+2. Search for **ELCO Aerotop** and choose **Download**.
+3. Restart Home Assistant.
+4. Continue with [Home Assistant setup](#home-assistant-setup).
 
-   ```text
-   https://github.com/thomasgregg/elco-aerotop
-   ```
-
-4. Select **Integration** as the category and choose **Add**.
-5. Search HACS for **ELCO Aerotop** and choose **Download**. After the default-store listing is
-   approved, new users can start directly with this step.
-6. Restart Home Assistant when HACS asks you to do so.
-7. Continue with [Home Assistant setup](#home-assistant-setup).
-
-These steps follow the [HACS custom-repository procedure](https://www.hacs.xyz/docs/faq/custom_repositories/).
+No custom repository setup is needed. Existing installations continue to receive
+updates through HACS without reinstalling.
 
 ### Option 2: Manual installation
 

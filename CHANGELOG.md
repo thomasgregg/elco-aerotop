@@ -2,7 +2,11 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
-## Unreleased
+## 0.3.15
+
+- Close the validation HTTP session and connector after setup and reauthentication, including
+  failed or cancelled validation attempts, preventing leaked connections.
+- Update installation instructions for inclusion in the HACS default repository list.
 
 - Add a dedicated holiday guide covering the read-only calendar design, current-holiday controls,
   Reduced/Frost-protection behavior, eight-slot boundary, availability, and a native Home
