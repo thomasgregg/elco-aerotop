@@ -2,6 +2,12 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.3.16
+
+- Fix config-flow cleanup to detach the temporary validation session without closing Home
+  Assistant's shared HTTP connector. This removes the `Integration elco_aerotop closes the Home
+  Assistant aiohttp session` warning introduced in 0.3.15.
+
 ## 0.3.15
 
 - Close the validation HTTP session and connector after setup and reauthentication, including

@@ -10,8 +10,8 @@ import pytest
 
 
 @pytest.mark.parametrize("failure_stage", [None, "login", "data", "cancel"])
-async def test_validation_closes_session_and_connector(failure_stage):
-    """Success, API errors and cancellation must all release the connector."""
+async def test_validation_detaches_session_without_closing_ha_connector(failure_stage):
+    """Validation must release its session without closing HA's connector."""
     import asyncio
 
     source = Path(__file__).parents[1] / "custom_components/elco_aerotop/config_flow.py"
@@ -55,7 +55,8 @@ async def test_validation_closes_session_and_connector(failure_stage):
             await namespace["_validate"](SimpleNamespace(hass=object()), user_input)
             client.async_get_data.assert_awaited_once_with(use_cache=False)
         assert session.closed
-        assert connector.closed
+        assert session.connector is None
+        assert not connector.closed
     finally:
         await session.close()
         await connector.close()
