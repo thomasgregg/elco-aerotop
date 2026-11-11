@@ -793,6 +793,45 @@ async def test_optional_discovery_aborts_on_probe_timeout() -> None:
     assert status["probe"] == "unavailable:TimeoutError"
 
 
+@pytest.mark.parametrize("minimum_response", [3.2, TimeoutError()])
+async def test_source_outlet_minimum_does_not_interrupt_other_discovery(
+    minimum_response: float | TimeoutError,
+) -> None:
+    api = FakeApi()
+    api.last_features_response = {"data": {"plant": {"systemType": 5}}}
+    api.async_get_schedule = AsyncMock(return_value={})
+    api.async_get_maintenance = AsyncMock(return_value={})
+    api.async_get_automated_monitoring = AsyncMock(return_value={})
+    api.async_get_bsb_boiler_data = AsyncMock(return_value={})
+    api.async_get_bsb_plant_data = AsyncMock(return_value={})
+    coordinator = _coordinator(api)
+    coordinator._features = {"hpSys": True}
+    live_outlet = {"address": 5834170, "valueAsNumber": 5.4}
+    minimum = {"address": 5838697, "valueAsNumber": minimum_response, "osv": False}
+
+    async def read_points(addresses):
+        if "5838697" in addresses:
+            assert addresses == ("5838697",)
+            if isinstance(minimum_response, TimeoutError):
+                raise minimum_response
+            return {"5838697": minimum}
+        return {"5834170": live_outlet} if "5834170" in addresses else {}
+
+    api.async_get_bsb_points = AsyncMock(side_effect=read_points)
+    await coordinator.async_refresh_deferred_discovery()
+
+    points = coordinator.data.discovery.bsb_points
+    status = coordinator.data.discovery.probe_status
+    assert points["5834170"] == live_outlet
+    assert status["maintenance"] == "available"
+    if isinstance(minimum_response, TimeoutError):
+        assert "5838697" not in points
+        assert status["bsb_points:source_outlet_minimum"] == "unavailable:TimeoutError"
+    else:
+        assert points["5838697"] == minimum
+        assert status["bsb_points:source_outlet_minimum"] == "available"
+
+
 @pytest.mark.asyncio
 async def test_optional_discovery_aborts_after_two_consecutive_gateway_failures() -> None:
     coordinator = _coordinator()

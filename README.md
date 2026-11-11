@@ -286,8 +286,9 @@ from heating into cooling; seasonal enablement remains under the controller's ow
   zone operating mode.
 - The water-heater entity is created only when Remocon returns a DHW comfort target and at least
   one verified, allowed DHW mode.
-- Optional sensors and binary sensors are created only when their source value exists during that
-  initial discovery; unsupported values do not create placeholder entities.
+- Optional entities are created when the gateway advertises the feature or initial discovery
+  finds the source value. An entity based on an advertised capability can remain unavailable
+  until its first successful read.
 - Writable native, number, and select entities are omitted if Remocon does not provide enough
   information to use them safely. Modes that a particular gateway does not offer are omitted from
   that entity's supported mode list.
@@ -309,9 +310,9 @@ from heating into cooling; seasonal enablement remains under the controller's ow
   70-second total limit because valid gateways can take close to a minute. A complete `GetData`
   operation has one shared budget of 70 seconds per requested zone, so restarting a failed
   multi-zone snapshot never doubles its maximum duration.
-- Deferred optional discovery stops early on a connection/timeout or rate limit, and after two
-  consecutive gateway-level `502`–`504` failures. It resumes later without making core heating and
-  hot-water entities unavailable.
+- Deferred optional discovery can stop early on connection failures, probe timeouts, or rate
+  limits. It resumes later without making core heating and hot-water entities unavailable.
+  See [gateway discovery](docs/discovery.md) for the full rules.
 
 ## Diagnostics and privacy
 

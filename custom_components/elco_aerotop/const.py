@@ -97,6 +97,7 @@ BSB_ENTITY_ADDRESSES: Final = {
     "heat_pump_flow_setpoint": "5834599",
     "heat_pump_gas_temperature": "334189",
     "source_outlet_temperature": "5834170",
+    "source_outlet_temperature_minimum": "5838697",  # BSB line 8430, verified on Aquatop S11
     "hot_gas_temperature": "5834175",
     # Diagnostics consumers > 8786/8787, verified from structured BSB
     # accordion metadata. These are queried only for cooling-capable plants.
@@ -143,6 +144,8 @@ BSB_DISCOVERY_GROUPS: Final = {
         "5838456",
         "5838457",
     ),
+    # Some controllers may not expose line 8430. Keep it out of the existing batch.
+    "source_outlet_minimum": (BSB_ENTITY_ADDRESSES["source_outlet_temperature_minimum"],),
     "cooling_2": (
         BSB_ENTITY_ADDRESSES["cooling_2_flow_temperature"],
         BSB_ENTITY_ADDRESSES["cooling_2_flow_setpoint"],

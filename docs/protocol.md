@@ -66,11 +66,17 @@ The following calls expand model discovery without enabling any corresponding wr
 | BSB parameters | `GET /R2/PlantMenuBsb/ReadDataPoints/{gateway}?addresses=...` |
 
 BSB display line numbers such as 700 and 720 are not accepted as read addresses. The integration
-uses a code-reviewed allowlist of controller-internal datapoint IDs and keeps the display line in
-the Home Assistant entity name. Optional calls run independently from core
-polling, have their own time bound, and expose an availability status in diagnostics. A `404`,
-changed response shape, or other endpoint-specific failure must not disable normal plant/zone
-updates.
+uses a code-reviewed allowlist of controller-internal datapoint IDs. Optional calls run
+independently from core polling, have their own time bound, and expose an availability status in
+diagnostics. A `404`, changed response shape, or other endpoint-specific failure must not disable
+normal plant/zone updates.
+
+For gateways that advertise heat-pump capability (`hpSys`), the integration reads line 8430
+(minimum source outlet temperature) at address `5838697` in a separate `ReadDataPoints` request.
+The read was verified on an
+[Aquatop S11 with an RVS61 controller](https://github.com/thomasgregg/elco-aerotop/issues/2#issuecomment-6792821726).
+A timeout of this probe is recorded under `bsb_points:source_outlet_minimum` and discovery
+continues. The controller's reset action has no verified Remocon request.
 
 The cloud maintenance endpoint and the controller's BSB `7000 – Message` group are different data
 sources. BSB maintenance-code entities require verified internal datapoint IDs; the integration

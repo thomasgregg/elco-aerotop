@@ -36,8 +36,9 @@ error class when the background pass completes. This prevents an optional schedu
 timeout from delaying Home Assistant startup.
 
 Deferred requests are serialized with core polling but release the gateway lock between probes.
-The pass stops early on a connection or probe timeout, on an HTTP rate limit, or after two
-consecutive gateway-level `502`–`504` responses. A `500` from one optional endpoint is treated as
+The pass stops early on a connection failure, on an HTTP rate limit, or after two consecutive
+gateway-level `502`–`504` responses. Probe timeouts also stop the pass, except for the isolated
+source outlet minimum read (line 8430). A `500` from one optional endpoint is treated as
 endpoint-specific and does not open the circuit. `Retry-After` postpones the next optional pass;
 otherwise later discovery can recover without affecting core entity availability.
 

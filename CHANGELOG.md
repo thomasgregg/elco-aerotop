@@ -2,6 +2,11 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.3.17
+
+- Add a read-only source outlet temperature minimum sensor (BSB line 8430), verified on the
+  Aquatop S11. Enable it under Diagnostics to record the controller's stored minimum.
+
 ## 0.3.16
 
 - Fix config-flow cleanup to detach the temporary validation session without closing Home

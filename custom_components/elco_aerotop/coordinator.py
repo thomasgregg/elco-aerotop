@@ -128,6 +128,7 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         *,
         timeout_seconds: int = _OPTIONAL_PROBE_TIMEOUT,
         circuit_breaker: bool = False,
+        abort_on_timeout: bool = True,
     ) -> Any:
         """Run an optional read without making the main coordinator unavailable."""
         try:
@@ -136,7 +137,11 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         except Exception as err:  # An optional endpoint must never disable core polling.
             status[name] = f"unavailable:{type(err).__name__}"
             _LOGGER.debug("Optional Remocon probe %s is unavailable: %s", name, err)
-            if circuit_breaker and self._optional_failure_should_abort(err):
+            if (
+                circuit_breaker
+                and (abort_on_timeout or not isinstance(err, TimeoutError))
+                and self._optional_failure_should_abort(err)
+            ):
                 raise _OptionalDiscoveryAborted(err) from err
             return None
         if circuit_breaker:
@@ -163,6 +168,7 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         status: dict[str, str],
         *,
         timeout_seconds: int = _OPTIONAL_PROBE_TIMEOUT,
+        abort_on_timeout: bool = True,
     ) -> Any:
         """Run one optional controller request without overlapping core traffic."""
         async with self._gateway_lock:
@@ -172,6 +178,7 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
                 status,
                 timeout_seconds=timeout_seconds,
                 circuit_breaker=True,
+                abort_on_timeout=abort_on_timeout,
             )
 
     def _schedule_programs(self, data: ElcoData) -> tuple[list[str], bool]:
@@ -328,7 +335,10 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
             for group_name, addresses in BSB_DISCOVERY_GROUPS.items():
                 if group_name.startswith("energy_history_"):
                     continue
-                if group_name == "cooling_2" and not has_cooling:
+                source_outlet_minimum = group_name == "source_outlet_minimum"
+                if (group_name == "cooling_2" and not has_cooling) or (
+                    source_outlet_minimum and not self._features.get("hpSys", False)
+                ):
                     status[f"bsb_points:{group_name}"] = "unsupported:feature"
                     supported_bsb_groups -= 1
                     continue
@@ -337,6 +347,7 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
                     lambda addresses=addresses: self.api.async_get_bsb_points(addresses),
                     status,
                     timeout_seconds=_BSB_PROBE_TIMEOUT,
+                    abort_on_timeout=not source_outlet_minimum,
                 )
                 if isinstance(group, dict):
                     bsb_points.update(group)

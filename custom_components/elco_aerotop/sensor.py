@@ -709,6 +709,12 @@ async def async_setup_entry(
             "Source outlet temperature",
             True,
         ),
+        (
+            "source_outlet_temperature_minimum",
+            "source_outlet_temperature_minimum",
+            "Source outlet temperature minimum",
+            True,
+        ),
         ("hot_gas_temperature", "hot_gas_temperature", "Hot gas temperature", True),
     ):
         address = BSB_ENTITY_ADDRESSES[source]

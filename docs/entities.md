@@ -301,9 +301,26 @@ diagnostics even when their dedicated entities are present locally.
 | Heating circuit 730 summer/winter limit | `sensor.<device>_heating_circuit_730_summer_winter_heating_limit` | A zone or BSB point exists |
 | Heat pump gas temperature | `sensor.<device>_heat_pump_gas_temperature` | Heat-pump capability or point exists |
 | Source outlet temperature | `sensor.<device>_source_outlet_temperature` | Heat-pump capability or point exists |
+| Source outlet temperature minimum (8430) | `sensor.<device>_source_outlet_temperature_minimum` | Remocon advertises heat-pump capability |
 | Hot gas temperature | `sensor.<device>_hot_gas_temperature` | Heat-pump capability or point exists |
 | Cooling circuit 2 flow temperature | `sensor.<device>_cooling_circuit_2_flow_temperature` | Gateway advertises cooling |
 | Cooling circuit 2 flow setpoint | `sensor.<device>_cooling_circuit_2_flow_setpoint` | Gateway advertises cooling |
+
+**Source outlet temperature minimum** is a read-only temperature sensor. The first read runs
+after setup, and subsequent reads run about once an hour. If Remocon does not return the
+datapoint, the sensor is unavailable.
+
+To start recording, find the sensor under **Settings → Devices & services → Entities**, filter
+by **Disabled**, then open the entity settings and turn on **Enabled**. Add it to a
+[History graph card](https://www.home-assistant.io/dashboards/history-graph/) to see the readings
+Home Assistant has recorded since activation.
+
+Line 8430 shows the controller's stored minimum. A low reading can carry over into subsequent
+days until cleared on the controller. The integration has no reset control for 8430. For a
+separate minimum per day, use the live outlet sensor (8429) in a
+[Statistics graph card](https://www.home-assistant.io/dashboards/statistics-graph/) with the
+period set to day and the statistic set to min. This uses only the samples Home Assistant
+receives, so it can miss short dips between polls.
 
 BSB line numbers are not JSON addresses and cannot be derived arithmetically. Only verified,
 allowlisted addresses are queried. Optional groups are isolated so a rejected address cannot
