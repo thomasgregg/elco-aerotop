@@ -432,9 +432,29 @@ async def test_features_and_system_data_capture_gateway_capabilities() -> None:
     assert items["HeatingCircuitPressure:0"]["value"] == 1.6
     assert items["ZoneMeasuredTemp:1"]["value"] == 22.4
     assert session.calls[-1][2]["json"]["useCache"] is False
+    assert session.calls[-1][2]["json"]["culture"] == "en"
     requested = session.calls[-1][2]["json"]["items"]
     assert {"id": "HeatingCircuitPressure", "zn": 0} in requested
     assert {"id": "ZoneMeasuredTemp", "zn": 1} in requested
+
+
+@pytest.mark.asyncio
+async def test_get_system_items_forwards_culture() -> None:
+    session = FakeSession(
+        [
+            *login_responses(),
+            FakeResponse(
+                json_data={"ok": True, "data": {"features": {"zones": []}}}
+            ),
+            FakeResponse(json_data={"data": {"items": []}}),
+        ]
+    )
+    client = ElcoApiClient(session, "user", "pass", "gateway", "https://example.test")
+
+    features = await client.async_get_features()
+    await client.async_get_system_items(features, [1], culture="de")
+
+    assert session.calls[-1][2]["json"]["culture"] == "de"
 
 
 @pytest.mark.asyncio

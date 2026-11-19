@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
@@ -20,9 +23,16 @@ from .const import (
 )
 from .coordinator import ElcoDataUpdateCoordinator
 
+_LOGGER = logging.getLogger(__name__)
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up ELCO Aerotop from a config entry."""
+    """Set up ELCO Aerotop from a config entry.
+
+    The first gateway fetch runs in the background so a slow Remocon response
+    does not delay Home Assistant startup; each platform registers its
+    entities as soon as the initial data lands.
+    """
     api = ElcoApiClient(
         # Remocon authentication is cookie-based. A private session prevents
         # credentials from colliding when multiple accounts are configured.
@@ -38,13 +48,38 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         api,
         entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
     )
-    await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+    # Keep the poll schedule alive before entities exist: DataUpdateCoordinator
+    # only reschedules while it has listeners, so without this a failed first
+    # fetch would never retry (entities only register once data lands).
+    entry.async_on_unload(coordinator.async_add_listener(lambda: None))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _clear_legacy_configuration_url(hass, api.gateway_id)
-    coordinator.start_deferred_discovery()
+    entry.async_create_background_task(
+        hass,
+        _async_lazy_first_refresh(hass, entry, coordinator),
+        f"{DOMAIN} first refresh {api.gateway_id}",
+    )
     return True
+
+
+async def _async_lazy_first_refresh(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    coordinator: ElcoDataUpdateCoordinator,
+) -> None:
+    """Fetch the initial snapshot without blocking setup."""
+    try:
+        await coordinator.async_refresh()
+    except ConfigEntryAuthFailed:
+        entry.async_start_reauth(hass)
+        return
+    except ConfigEntryError as err:
+        _LOGGER.warning("Initial ELCO refresh failed: %s", err)
+    # Kick off optional discovery once core data exists; it self-guards and
+    # returns immediately when the first poll has not produced data yet.
+    coordinator.start_deferred_discovery()
 
 
 def _clear_legacy_configuration_url(hass: HomeAssistant, gateway_id: str) -> None:

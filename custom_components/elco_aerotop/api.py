@@ -5,12 +5,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from datetime import UTC, date, datetime, time
 from email.utils import parsedate_to_datetime
 from html import unescape
 from math import isfinite
-from typing import Any
+from typing import Any, TypeVar
 
 from aiohttp import (
     ClientConnectorCertificateError,
@@ -36,8 +37,24 @@ from .const import (
     BUS_ERRORS_PATH,
     DATA_ITEMS_PATH,
     FEATURES_PATH,
+    GALEVO_BUS_DEVICES_PATH,
+    GALEVO_CONS_SEQUENCES_PATH,
+    GALEVO_DATA_ITEMS_SET_PATH,
+    GALEVO_DHW_MODE_PATH,
+    GALEVO_DHW_TEMP_PATH,
+    GALEVO_DHW_TIME_PROG_TEMPERATURES_PATH,
+    GALEVO_GLOBAL_DATA_ITEM_IDS,
+    GALEVO_HOLIDAY_PATH,
+    GALEVO_HOME_DATA_PATH,
+    GALEVO_PLANT_MODE_PATH,
+    GALEVO_SYSTEM_STATE_PATH,
+    GALEVO_TIME_PROG_PATH,
+    GALEVO_WRITES_ENABLED,
+    GALEVO_ZONE_DATA_ITEM_IDS,
+    GALEVO_ZONE_MODE_PATH,
+    GALEVO_ZONE_PATH,
+    GALEVO_ZONE_TEMPERATURES_PATH,
     GET_DATA_PATH,
-    GLOBAL_DATA_ITEM_IDS,
     LOGIN_PATH,
     MAINTENANCE_PATH,
     MENU_ITEM_BASE_IDS,
@@ -51,17 +68,37 @@ from .const import (
     SAVE_DHW_PATH,
     SET_DATA_PATH,
     SET_TEMPERATURE_PATH,
+    SYSTEM_TYPE_GALEVO,
     USER_AGENT,
-    ZONE_DATA_ITEM_IDS,
 )
 from .control_mapping import ZONE_MODE_AUTOMATIC
-from .models import ElcoData, PlantState, ZoneState, bsb_point_available
+from .models import (
+    GALEVO_DHW_MODE_TO_RAW,
+    GALEVO_ZONE_MODE_TO_RAW,
+    ElcoData,
+    PlantState,
+    ZoneState,
+    bsb_point_available,
+)
 
 _LOGGER = logging.getLogger(__name__)
+
+_DEBUG_PAYLOAD_LIMIT = 2000
+
+
+def _debug_payload(payload: Any) -> str:
+    """Return a bounded repr of a request/response payload for debug logs."""
+    if payload is None:
+        return "-"
+    text = repr(payload)
+    if len(text) > _DEBUG_PAYLOAD_LIMIT:
+        return f"{text[:_DEBUG_PAYLOAD_LIMIT]}...({len(text)} chars total)"
+    return text
 
 _CONNECT_TIMEOUT_SECONDS = 15
 _SOCKET_READ_TIMEOUT_SECONDS = 65
 _SAFE_READ_ATTEMPTS = 2
+_T = TypeVar("_T")
 _SAFE_READ_RETRY_DELAY_SECONDS = 1
 _RETRYABLE_READ_STATUSES = frozenset({408, 500, 502, 503, 504})
 _MAX_RETRY_AFTER_SECONDS = 86400
@@ -178,6 +215,25 @@ class ElcoApiClient:
             sock_read=_SOCKET_READ_TIMEOUT_SECONDS,
         )
         self.last_features_response: Any = None
+        self.last_features: dict[str, Any] | None = None
+        self.last_system_items: dict[str, dict[str, Any]] = {}
+
+    @property
+    def system_type(self) -> int | None:
+        """Return the controller family reported by the last Features response."""
+        response = self.last_features_response
+        data = response.get("data") if isinstance(response, dict) else None
+        plant = data.get("plant") if isinstance(data, dict) else None
+        system_type = plant.get("systemType") if isinstance(plant, dict) else None
+        try:
+            return int(system_type) if system_type is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    def _require_supported_system(self) -> None:
+        """Reject controller-family write paths that are not verified for this gateway."""
+        if self.system_type == SYSTEM_TYPE_GALEVO:
+            raise ValueError("This control is not yet supported for Galevo gateways")
 
     @property
     def _json_headers(self) -> dict[str, str]:
@@ -197,6 +253,7 @@ class ElcoApiClient:
         async with self._auth_lock:
             if self._authenticated:
                 return
+            _LOGGER.debug("Remocon R2 login for gateway %s", self.gateway_id)
             try:
                 response = await self._session.get(
                     self._url(LOGIN_PATH),
@@ -243,11 +300,18 @@ class ElcoApiClient:
                         str(payload.get("message") or "Wrong username or password")
                     )
                 self._authenticated = True
-            except ElcoApiError:
+                _LOGGER.debug("Remocon R2 login succeeded for gateway %s", self.gateway_id)
+            except ElcoApiError as err:
                 self._authenticated = False
+                _LOGGER.debug("Remocon R2 login failed for gateway %s: %s", self.gateway_id, err)
                 raise
             except (ClientError, TimeoutError) as err:
                 self._authenticated = False
+                _LOGGER.debug(
+                    "Remocon R2 login transport failure for gateway %s: %r",
+                    self.gateway_id,
+                    err,
+                )
                 raise ElcoConnectionError(
                     "Unable to connect to Remocon",
                     timed_out=isinstance(err, TimeoutError),
@@ -286,6 +350,12 @@ class ElcoApiClient:
     ) -> Any:
         if not self._authenticated:
             await self.async_login()
+        _LOGGER.debug(
+            "Remocon %s %s request body=%s",
+            method,
+            path,
+            "<credentials>" if path == LOGIN_PATH else _debug_payload(body),
+        )
         try:
             response = await self._session.request(
                 method,
@@ -298,12 +368,27 @@ class ElcoApiClient:
                 payload = await self._decode_json(response, path)
             if isinstance(payload, dict) and payload.get("ok") is False:
                 message = str(payload.get("message") or f"{path} failed")
+                _LOGGER.debug(
+                    "Remocon %s %s -> HTTP %s rejected: %s",
+                    method,
+                    path,
+                    response.status,
+                    _debug_payload(payload),
+                )
                 raise ElcoResponseError(
                     message,
                     ambiguous="communication error" in message.casefold(),
                 )
+            _LOGGER.debug(
+                "Remocon %s %s -> HTTP %s payload=%s",
+                method,
+                path,
+                response.status,
+                _debug_payload(payload),
+            )
             return payload
         except ElcoAuthenticationError:
+            _LOGGER.debug("Remocon %s %s -> authentication rejected", method, path)
             if invalidate_auth:
                 self._authenticated = False
             if not retry_auth:
@@ -316,9 +401,11 @@ class ElcoApiClient:
                 retry_auth=False,
                 invalidate_auth=invalidate_auth,
             )
-        except ElcoApiError:
+        except ElcoApiError as err:
+            _LOGGER.debug("Remocon %s %s failed: %s", method, path, err)
             raise
         except (ClientError, TimeoutError) as err:
+            _LOGGER.debug("Remocon %s %s transport failure: %r", method, path, err)
             raise ElcoConnectionError(
                 f"Unable to communicate with Remocon: {path}",
                 timed_out=isinstance(err, TimeoutError),
@@ -351,6 +438,7 @@ class ElcoApiClient:
         async with self._mobile_auth_lock:
             if self._mobile_token is not None:
                 return
+            _LOGGER.debug("Remocon mobile login for gateway %s", self.gateway_id)
             try:
                 response = await self._session.post(
                     self._url(MOBILE_LOGIN_PATH),
@@ -364,11 +452,25 @@ class ElcoApiClient:
                 if not isinstance(token, str) or not token:
                     raise ElcoAuthenticationError("Mobile login did not return a token")
                 self._mobile_token = token
-            except ElcoApiError:
+                _LOGGER.debug(
+                    "Remocon mobile login succeeded for gateway %s",
+                    self.gateway_id,
+                )
+            except ElcoApiError as err:
                 self._mobile_token = None
+                _LOGGER.debug(
+                    "Remocon mobile login failed for gateway %s: %s",
+                    self.gateway_id,
+                    err,
+                )
                 raise
             except (ClientError, TimeoutError) as err:
                 self._mobile_token = None
+                _LOGGER.debug(
+                    "Remocon mobile login transport failure for gateway %s: %r",
+                    self.gateway_id,
+                    err,
+                )
                 raise ElcoConnectionError(
                     "Unable to connect to the Remocon mobile API",
                     timed_out=isinstance(err, TimeoutError),
@@ -379,28 +481,54 @@ class ElcoApiClient:
         self,
         path: str,
         *,
+        method: str = "GET",
+        body: dict[str, Any] | list[Any] | None = None,
         retry_auth: bool = True,
     ) -> Any:
-        """Make one token-authenticated, read-only mobile API request."""
+        """Make one token-authenticated mobile API request."""
         if self._mobile_token is None:
             await self._async_mobile_login()
+        _LOGGER.debug(
+            "Remocon mobile %s %s request body=%s",
+            method,
+            path,
+            _debug_payload(body),
+        )
         try:
-            response = await self._session.get(
+            response = await self._session.request(
+                method,
                 self._url(path),
                 headers={**self._json_headers, "ar.authToken": self._mobile_token or ""},
+                json=body,
                 timeout=self._timeout,
             )
             async with response:
-                return await self._decode_json(response, path)
+                payload = await self._decode_json(response, path)
+            _LOGGER.debug(
+                "Remocon mobile %s %s -> HTTP %s payload=%s",
+                method,
+                path,
+                response.status,
+                _debug_payload(payload),
+            )
+            return payload
         except ElcoAuthenticationError:
+            _LOGGER.debug("Remocon mobile %s %s -> token rejected", method, path)
             self._mobile_token = None
             if not retry_auth:
                 raise
             await self._async_mobile_login()
-            return await self._request_mobile_payload(path, retry_auth=False)
-        except ElcoApiError:
+            return await self._request_mobile_payload(
+                path,
+                method=method,
+                body=body,
+                retry_auth=False,
+            )
+        except ElcoApiError as err:
+            _LOGGER.debug("Remocon mobile %s %s failed: %s", method, path, err)
             raise
         except (ClientError, TimeoutError) as err:
+            _LOGGER.debug("Remocon mobile %s %s transport failure: %r", method, path, err)
             raise ElcoConnectionError(
                 f"Unable to communicate with Remocon: {path}",
                 timed_out=isinstance(err, TimeoutError),
@@ -420,6 +548,7 @@ class ElcoApiClient:
         features = data.get("features", data)
         if not isinstance(features, dict):
             raise ElcoResponseError("Features did not contain a capability map")
+        self.last_features = features
         return features
 
     async def async_get_zone_numbers(
@@ -443,13 +572,23 @@ class ElcoApiClient:
         self,
         features: dict[str, Any],
         zone_numbers: list[int],
+        culture: str = "en",
     ) -> dict[str, dict[str, Any]]:
-        """Fetch the safe scalar data items exposed by the mobile API."""
-        items = [{"id": item_id, "zn": 0} for item_id in GLOBAL_DATA_ITEM_IDS]
+        """Fetch the safe scalar data items exposed by the mobile API.
+
+        Requests the Galevo data-item catalog (``GALEVO_*_DATA_ITEM_IDS``).
+        This is the authoritative read surface on Galevo; on BSB gateways it
+        runs as an optional discovery probe — unsupported items are omitted.
+
+        ``culture`` controls server-side localization of text values such as
+        ``ZoneName``; the APK sends the app language
+        (``Locale.getDefault().getLanguage()``).
+        """
+        items = [{"id": item_id, "zn": 0} for item_id in GALEVO_GLOBAL_DATA_ITEM_IDS]
         items.extend(
             {"id": item_id, "zn": zone_number}
             for zone_number in zone_numbers
-            for item_id in ZONE_DATA_ITEM_IDS
+            for item_id in GALEVO_ZONE_DATA_ITEM_IDS
         )
         payload = await self._request_payload(
             "POST",
@@ -458,7 +597,7 @@ class ElcoApiClient:
                 "useCache": False,
                 "items": items,
                 "features": features,
-                "culture": "en",
+                "culture": culture,
             },
             retry_auth=False,
             invalidate_auth=False,
@@ -498,6 +637,517 @@ class ElcoApiClient:
             raise ElcoResponseError("BSB plant data returned an unexpected payload")
         return data
 
+    async def async_get_galevo_zone(self, zone_number: int) -> dict[str, Any]:
+        """Fetch one Galevo zone state from the mobile zones endpoint."""
+        payload = await self._request_mobile_payload(
+            GALEVO_ZONE_PATH.format(gateway_id=self.gateway_id, zone=zone_number),
+        )
+        data = payload.get("data", payload) if isinstance(payload, dict) else payload
+        if not isinstance(data, dict):
+            raise ElcoResponseError("Galevo zone data returned an unexpected payload")
+        return data
+
+    async def async_get_galevo_system_state(self) -> dict[str, Any]:
+        """Fetch the Galevo plant system state (pilot zones)."""
+        payload = await self._request_mobile_payload(
+            GALEVO_SYSTEM_STATE_PATH.format(gateway_id=self.gateway_id),
+        )
+        data = payload.get("data", payload) if isinstance(payload, dict) else payload
+        if not isinstance(data, dict):
+            raise ElcoResponseError("Galevo system state returned an unexpected payload")
+        return data
+
+    async def async_get_galevo_time_prog(self, program: str) -> Any:
+        """Fetch one Galevo weekly time program (same eProgId values as BSB)."""
+        program_id = BSB_TIME_PROGRAM_IDS.get(program)
+        if program_id is None:
+            raise ElcoResponseError(f"Unsupported time program: {program}")
+        payload = await self._request_mobile_payload(
+            GALEVO_TIME_PROG_PATH.format(
+                gateway_id=self.gateway_id,
+                program_id=program_id,
+            ),
+        )
+        return payload.get("data", payload) if isinstance(payload, dict) else payload
+
+    async def async_get_galevo_home_items(
+        self,
+        features: dict[str, Any],
+        zone_number: int,
+    ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
+        """Fetch the Galevo home-screen item set for one zone.
+
+        ``POST /R2/PlantHome/GetData`` is the R2 counterpart of the BSB
+        snapshot: it returns the same data-item shape as the mobile
+        ``dataItems`` endpoint but with localized ``optTexts``, real
+        min/max bounds and ``readOnly`` flags, plus a few items the mobile
+        catalog omits (IsQuite, IsDhwBoost, IsResistorOn, cooling setpoints).
+        Returns the items keyed ``<id>:<zone>`` and the raw data block.
+        """
+        payload = await self._request_payload(
+            "POST",
+            GALEVO_HOME_DATA_PATH.format(gateway_id=self.gateway_id),
+            body={
+                "features": {**features, "gatewayId": self.gateway_id},
+                "filter": {
+                    "notEssentials": True,
+                    "plant": True,
+                    "zone": True,
+                    "dhw": True,
+                },
+                "useCache": True,
+                "zone": zone_number,
+            },
+            retry_auth=False,
+            invalidate_auth=False,
+        )
+        data = payload.get("data", payload) if isinstance(payload, dict) else payload
+        items_list = data.get("items") if isinstance(data, dict) else None
+        if not isinstance(items_list, list):
+            raise ElcoResponseError("Galevo home data returned an unexpected payload")
+        items = {
+            f"{item['id']}:{item.get('zone', 0)}": item
+            for item in items_list
+            if isinstance(item, dict) and item.get("id") is not None
+        }
+        return items, data
+
+    async def async_get_galevo_bus_devices(self) -> list[dict[str, Any]]:
+        """Fetch the Galevo bus-device inventory (names, serials, categories)."""
+        payload = await self._request_mobile_payload(
+            GALEVO_BUS_DEVICES_PATH.format(gateway_id=self.gateway_id),
+        )
+        data = payload.get("data", payload) if isinstance(payload, dict) else payload
+        if not isinstance(data, list):
+            raise ElcoResponseError("Galevo bus devices returned an unexpected payload")
+        return [item for item in data if isinstance(item, dict)]
+
+    async def _async_read_with_retry(
+        self,
+        what: str,
+        fetch: Callable[[], Awaitable[_T]],
+        *,
+        deadline_seconds: float = REQUEST_TIMEOUT,
+    ) -> _T:
+        """Run a read with the same bounded retry policy as BSB GetData."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + deadline_seconds
+        last_error: ElcoApiError | None = None
+        for attempt in range(_SAFE_READ_ATTEMPTS):
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                break
+            try:
+                async with asyncio.timeout(remaining):
+                    return await fetch()
+            except TimeoutError as err:
+                raise ElcoConnectionError(
+                    f"{what} exceeded its overall time limit",
+                    timed_out=True,
+                ) from err
+            except (ElcoConnectionError, ElcoResponseError) as err:
+                last_error = err
+                if (
+                    attempt == _SAFE_READ_ATTEMPTS - 1
+                    or not _is_retryable_read_error(err)
+                    or deadline - loop.time() <= _SAFE_READ_RETRY_DELAY_SECONDS
+                ):
+                    raise
+                _LOGGER.debug("Retrying %s after: %s", what, err)
+                await asyncio.sleep(_SAFE_READ_RETRY_DELAY_SECONDS)
+        if last_error is not None:
+            raise last_error
+        raise ElcoConnectionError(
+            f"{what} exceeded its overall time limit",
+            timed_out=True,
+        )
+
+    @staticmethod
+    def _require_galevo_writes() -> None:
+        """Reject Galevo writes until the master switch is enabled."""
+        if not GALEVO_WRITES_ENABLED:
+            raise ValueError(
+                "Galevo writes are disabled until the request contracts are "
+                "exercised deliberately (GALEVO_WRITES_ENABLED is off)"
+            )
+
+    async def _async_galevo_change_value(
+        self,
+        path: str,
+        new_value: Any,
+        old_value: Any,
+    ) -> Any:
+        """POST a Galevo ``ChangeValueDto`` ({new, old}) request.
+
+        Contract verified from the APK proxies (ZoneProxy, PlantDataProxy):
+        every scalar/enum write serializes both values so the gateway can
+        detect concurrent changes. The DTO's wire names are ``new``/``old``
+        (kotlinx @SerialName in ChangeValueDtoSerializer), not the Kotlin
+        property names ``newValue``/``oldValue`` — sending the long names
+        makes the server deserialize nulls (HTTP 500, or an acknowledged
+        no-op as observed for plantData/mode).
+        """
+        self._require_galevo_writes()
+        _LOGGER.debug(
+            "Galevo write %s new=%r old=%r",
+            path,
+            new_value,
+            old_value,
+        )
+        payload = await self._request_mobile_payload(
+            path,
+            method="POST",
+            body={"new": new_value, "old": old_value},
+        )
+        return payload.get("data", payload) if isinstance(payload, dict) else payload
+
+    async def async_set_galevo_plant_mode(
+        self,
+        mode: int,
+        *,
+        old_mode: int,
+    ) -> Any:
+        """Set the plant mode via ``plantData/{gw}/mode`` (raw ePlantMode).
+
+        Live evidence 2026-11-19: with the correct ``new``/``old`` wire
+        names this route applies the mode — verified Winter→Summer→Winter
+        on a Galevo gateway. An earlier no-op observation was caused by
+        sending the Kotlin property names ``newValue``/``oldValue``, which
+        the server deserialized as an empty change.
+        """
+        return await self._async_galevo_change_value(
+            GALEVO_PLANT_MODE_PATH.format(gateway_id=self.gateway_id),
+            mode,
+            old_mode,
+        )
+
+    async def async_set_galevo_zone_mode(
+        self,
+        zone_number: int,
+        mode: int,
+        *,
+        old_mode: int,
+    ) -> Any:
+        """Set a zone mode via ``POST zones/{gw}/{zn}/mode`` (raw eZoneMode)."""
+        return await self._async_galevo_change_value(
+            GALEVO_ZONE_MODE_PATH.format(
+                gateway_id=self.gateway_id,
+                zone=zone_number,
+            ),
+            mode,
+            old_mode,
+        )
+
+    async def async_set_galevo_zone_temperatures(
+        self,
+        zone_number: int,
+        *,
+        comfort: float,
+        economy: float,
+        old_comfort: float,
+        old_economy: float,
+    ) -> Any:
+        """Set zone heating comfort/economy via ``zones/{gw}/{zn}/temperatures``.
+
+        APK-verified contract (ZoneProxy.setTemperatures): both values go in
+        one ``TemperaturesDto`` pair wrapped in ``ChangeValueDto``. The DTO
+        serializes its fields as ``comf``/``econ`` (kotlinx @SerialName), not
+        the full field names.
+        """
+        return await self._async_galevo_change_value(
+            GALEVO_ZONE_TEMPERATURES_PATH.format(
+                gateway_id=self.gateway_id,
+                zone=zone_number,
+            ),
+            {"comf": comfort, "econ": economy},
+            {"comf": old_comfort, "econ": old_economy},
+        )
+
+    async def async_set_galevo_dhw_temp(
+        self,
+        temperature: float,
+        *,
+        old_temperature: float,
+    ) -> Any:
+        """Set the always-on DHW setpoint via ``plantData/{gw}/dhwTemp``."""
+        return await self._async_galevo_change_value(
+            GALEVO_DHW_TEMP_PATH.format(gateway_id=self.gateway_id),
+            temperature,
+            old_temperature,
+        )
+
+    async def async_set_galevo_dhw_mode(
+        self,
+        mode: int,
+        *,
+        old_mode: int,
+    ) -> Any:
+        """Set the DHW mode via ``plantData/{gw}/dhwMode`` (raw eDhwMode)."""
+        return await self._async_galevo_change_value(
+            GALEVO_DHW_MODE_PATH.format(gateway_id=self.gateway_id),
+            mode,
+            old_mode,
+        )
+
+    async def async_set_galevo_dhw_timeprog_temperatures(
+        self,
+        *,
+        comfort: float,
+        economy: float,
+        old_comfort: float,
+        old_economy: float,
+    ) -> Any:
+        """Set the scheduled DHW comfort/economy pair via
+        ``plantData/{gw}/dhwTimeProgTemperatures``.
+
+        APK-verified contract (PlantDataProxy.setDhwTimeProgTemperatures):
+        ``ChangeValueDto<TemperaturesDto>`` where the DTO serializes as
+        ``comf``/``econ`` (kotlinx @SerialName), not the full field names.
+        """
+        return await self._async_galevo_change_value(
+            GALEVO_DHW_TIME_PROG_TEMPERATURES_PATH.format(gateway_id=self.gateway_id),
+            {"comf": comfort, "econ": economy},
+            {"comf": old_comfort, "econ": old_economy},
+        )
+
+    async def async_set_galevo_holiday(
+        self,
+        *,
+        start: str,
+        end: str,
+    ) -> Any:
+        """Schedule the plant holiday via ``plantData/{gw}/holiday``.
+
+        APK-verified contract (PlantDataProxy.setHoliday): the body is a
+        ``ChangeValueDto<LocalDateTime>`` where ``new`` carries the
+        start and ``old`` the end, both ISO local date-times.
+        """
+        return await self._async_galevo_change_value(
+            GALEVO_HOLIDAY_PATH.format(gateway_id=self.gateway_id),
+            start,
+            end,
+        )
+
+    async def async_reset_galevo_holiday(self, *, now: str) -> Any:
+        """Cancel the plant holiday (``PlantDataProxy.resetHoliday``).
+
+        The APK serializes a ``ChangeValueDto<LocalDateTime>`` carrying only
+        ``old`` (the cancellation instant); ``new`` stays absent. Wire names
+        verified in ChangeValueDtoSerializer: ``new``/``old``.
+        """
+        self._require_galevo_writes()
+        payload = await self._request_mobile_payload(
+            GALEVO_HOLIDAY_PATH.format(gateway_id=self.gateway_id),
+            method="POST",
+            body={"old": now},
+        )
+        return payload.get("data", payload) if isinstance(payload, dict) else payload
+
+    async def async_set_galevo_data_item(
+        self,
+        item: dict[str, Any],
+        value: float,
+        *,
+        features: dict[str, Any] | None = None,
+    ) -> Any:
+        """Set one writable data item via ``POST dataItems/{gw}/set``.
+
+        APK-verified contract (DataItemProxy.setDataItems): the body carries
+        the plant's ``features`` map and ``items`` with each changed item
+        echoed back in full plus ``prevValue``/``prevExpiresOn`` (optimistic
+        concurrency). ``prevExpiresOn`` is only sent when the read returned
+        an ``expiresOn`` field — its null-tolerance is the one contract
+        detail not yet exercised, hence ``GALEVO_WRITES_ENABLED``.
+        """
+        self._require_galevo_writes()
+        _LOGGER.debug(
+            "Galevo data item write id=%r zn=%r value=%r prevValue=%r prevExpiresOn=%r",
+            item.get("id"),
+            item.get("zn"),
+            value,
+            item.get("value"),
+            item.get("expiresOn") if "expiresOn" in item else "<absent>",
+        )
+        set_item = {
+            **item,
+            "value": value,
+            "prevValue": item.get("value"),
+        }
+        if "expiresOn" in item:
+            set_item["prevExpiresOn"] = item.get("expiresOn")
+        payload = await self._request_mobile_payload(
+            GALEVO_DATA_ITEMS_SET_PATH.format(gateway_id=self.gateway_id),
+            method="POST",
+            body={
+                "features": features if features is not None else self.last_features or {},
+                "items": [set_item],
+            },
+        )
+        return payload.get("data", payload) if isinstance(payload, dict) else payload
+
+    async def _async_set_galevo_zone_temperatures(
+        self,
+        zone: ZoneState,
+        *,
+        comfort: float,
+        reduced: float,
+        cooling: bool,
+    ) -> None:
+        """Galevo zone temperatures: dedicated route for heating, item set for cooling."""
+        comfort_variable = zone.cooling_comfort_temperature if cooling else zone.comfort_temperature
+        reduced_variable = zone.cooling_reduced_temperature if cooling else zone.reduced_temperature
+        comfort_variable.validate(comfort)
+        reduced_variable.validate(reduced)
+        if cooling:
+            if comfort > reduced:
+                raise ValueError("Cooling comfort temperature cannot exceed reduced temperature")
+            items = {
+                "ZoneComfortCoolingTemp": comfort,
+                "ZoneEconomyCoolingTemp": reduced,
+            }
+            for item_id, new_value in items.items():
+                item = self.last_system_items.get(f"{item_id}:{zone.number}")
+                if item is None:
+                    raise ValueError(f"{item_id} is not available on this plant")
+                await self.async_set_galevo_data_item(item, new_value)
+            return
+        if comfort < reduced:
+            raise ValueError("Heating comfort temperature cannot be below reduced temperature")
+        if comfort_variable.value is None or reduced_variable.value is None:
+            raise ValueError("Remocon did not return the current zone temperatures")
+        await self.async_set_galevo_zone_temperatures(
+            zone.number,
+            comfort=comfort,
+            economy=reduced,
+            old_comfort=comfort_variable.value,
+            old_economy=reduced_variable.value,
+        )
+
+    async def _async_set_galevo_dhw(
+        self,
+        plant: PlantState,
+        *,
+        comfort: float,
+        reduced: float,
+        mode: int,
+    ) -> None:
+        """Galevo DHW: mode and temperature pair over the APK-verified routes.
+
+        The coordinator always passes the full desired state; only the
+        endpoints whose values actually changed are called.
+        """
+        plant.dhw_comfort_temperature.validate(comfort)
+        plant.dhw_reduced_temperature.validate(reduced)
+        allowed_modes = {option.value for option in plant.dhw_mode.options}
+        if allowed_modes and mode not in allowed_modes:
+            raise ValueError(f"Unsupported DHW mode: {mode}")
+        if comfort < reduced:
+            raise ValueError("DHW comfort temperature cannot be below reduced temperature")
+
+        if mode != plant.dhw_mode.value:
+            raw_mode = GALEVO_DHW_MODE_TO_RAW.get(mode)
+            raw_current = GALEVO_DHW_MODE_TO_RAW.get(plant.dhw_mode.value)
+            if raw_mode is None or raw_current is None:
+                raise ValueError(f"DHW mode {mode} has no Galevo equivalent")
+            await self.async_set_galevo_dhw_mode(raw_mode, old_mode=raw_current)
+
+        old_comfort = plant.dhw_comfort_temperature.value
+        old_reduced = plant.dhw_reduced_temperature.value
+        if comfort == old_comfort and reduced == old_reduced:
+            return
+        if old_reduced is not None and old_comfort is not None:
+            await self.async_set_galevo_dhw_timeprog_temperatures(
+                comfort=comfort,
+                economy=reduced,
+                old_comfort=old_comfort,
+                old_economy=old_reduced,
+            )
+        elif old_comfort is not None:
+            await self.async_set_galevo_dhw_temp(comfort, old_temperature=old_comfort)
+        else:
+            raise ValueError("Remocon did not return the current DHW temperatures")
+
+    async def async_get_galevo_consumption_sequences(self) -> list[dict[str, Any]]:
+        """Fetch consumption time series (kWh) from ``consSequencesApi8``.
+
+        Verified live: ``?usages=Ch,Dhw,Cooling&hasSlp=false`` returns
+        ``[{k, p, v}]`` where ``k`` is the eEnergyUsageDto value (1=heating,
+        2=DHW, 3=cooling; the gateway may add aggregate kinds like
+        24=ChHpResAggr), ``p`` the eSequencePeriod (1=24h, 2=7d, 3=30d,
+        4=12 months) and ``v`` the kWh buckets, oldest first.
+        """
+        payload = await self._request_mobile_payload(
+            GALEVO_CONS_SEQUENCES_PATH.format(gateway_id=self.gateway_id),
+        )
+        data = payload.get("data", payload) if isinstance(payload, dict) else payload
+        return data if isinstance(data, list) else []
+
+    async def async_get_galevo_data(
+        self,
+        features: dict[str, Any],
+        zone_numbers: list[int],
+        culture: str = "en",
+    ) -> tuple[ElcoData, dict[str, dict[str, Any]]]:
+        """Fetch one complete Galevo snapshot: dataItems plus per-zone state.
+
+        Uses the same bounded retry policy as the BSB snapshot so transient
+        5xx responses do not fail the whole poll.
+        """
+        return await self._async_read_with_retry(
+            "Galevo snapshot",
+            lambda: self._async_get_galevo_data_once(features, zone_numbers, culture),
+            deadline_seconds=REQUEST_TIMEOUT * max(1, len(zone_numbers)),
+        )
+
+    async def _async_get_galevo_data_once(
+        self,
+        features: dict[str, Any],
+        zone_numbers: list[int],
+        culture: str = "en",
+    ) -> tuple[ElcoData, dict[str, dict[str, Any]]]:
+        """Fetch one Galevo snapshot attempt: dataItems plus per-zone state.
+
+        Live-verified 2026-11-19 on a Galevo gateway: the R2
+        ``PlantHome/GetData`` home items are a strict subset of the mobile
+        ``dataItems`` catalog (r2-only: 0 items; the mobile response adds
+        19 more, e.g. ZoneName, flow temps, buffer setpoints). The
+        per-zone R2 call was therefore dropped from the poll; R2 is only
+        used for Features (cached) and ``SetData`` writes.
+        """
+        system_items = await self.async_get_system_items(
+            features, zone_numbers, culture=culture
+        )
+        feature_zones: dict[int, dict[str, Any]] = {}
+        for zone in features.get("zones", []):
+            if not isinstance(zone, dict):
+                continue
+            try:
+                feature_zones[int(zone["num"])] = zone
+            except (KeyError, TypeError, ValueError):
+                continue
+
+        zones: dict[int, ZoneState] = {}
+        raw_responses: list[Any] = []
+        for zone_number in zone_numbers:
+            raw = await self.async_get_galevo_zone(zone_number)
+            raw_responses.append(raw)
+            zones[zone_number] = ZoneState.from_galevo(
+                zone_number,
+                raw,
+                system_items,
+                feature_zones.get(zone_number),
+            )
+        data = ElcoData(
+            self.gateway_id,
+            PlantState.from_galevo(system_items),
+            zones,
+            get_data_responses=raw_responses,
+        )
+        # Keep the merged item map for Galevo data-item writes: the set
+        # request echoes the full item plus prevValue.
+        self.last_system_items = system_items
+        return data, system_items
+
     async def async_get_menu_items(
         self,
         item_ids: tuple[int, ...] = MENU_ITEM_BASE_IDS,
@@ -510,6 +1160,9 @@ class ElcoApiClient:
             ),
         )
         items = payload.get("data", payload) if isinstance(payload, dict) else payload
+        if isinstance(items, dict):
+            # Galevo single-item responses are keyed by menu id.
+            items = list(items.values())
         if not isinstance(items, list):
             raise ElcoResponseError("Menu items returned an unexpected payload")
         return {
@@ -518,8 +1171,8 @@ class ElcoApiClient:
             if isinstance(item, dict) and item.get("id") is not None
         }
 
-    async def async_get_plant_metadata(self) -> dict[str, Any]:
-        """Fetch metadata, serial, and location from the native plant list."""
+    async def async_list_plants(self) -> list[dict[str, Any]]:
+        """Fetch every gateway/plant registered on the authenticated account."""
         payload = await self._request_payload(
             "GET",
             PLANTS_LITE_PATH,
@@ -528,10 +1181,12 @@ class ElcoApiClient:
         )
         plants = payload.get("data", payload) if isinstance(payload, dict) else payload
         if not isinstance(plants, list):
-            raise ElcoResponseError("Plant metadata returned an unexpected payload")
-        for plant in plants:
-            if not isinstance(plant, dict):
-                continue
+            raise ElcoResponseError("Plant list returned an unexpected payload")
+        return [plant for plant in plants if isinstance(plant, dict)]
+
+    async def async_get_plant_metadata(self) -> dict[str, Any]:
+        """Fetch metadata, serial, and location from the native plant list."""
+        for plant in await self.async_list_plants():
             identifiers = {str(plant.get(key, "")).upper() for key in ("gwId", "gwSerial")}
             if self.gateway_id in identifiers:
                 return plant
@@ -569,7 +1224,8 @@ class ElcoApiClient:
         if program_id is None:
             raise ElcoResponseError(f"Unsupported BSB time program: {program}")
         is_dhw = program == "Dhw"
-        zone = 0 if is_dhw or program == "Extra" else int(re.search(r"\d+$", program).group())
+        zone_match = re.search(r"\d+$", program)
+        zone = 0 if is_dhw or program == "Extra" or zone_match is None else int(zone_match.group())
         payload = await self._request_payload(
             "POST",
             BSB_TIME_PROGRAM_PATH.format(gateway_id=self.gateway_id),
@@ -719,6 +1375,7 @@ class ElcoApiClient:
 
     async def async_write_bsb_point(self, point: dict[str, Any], value: float | int) -> None:
         """Write one reviewed BSB datapoint using Remocon's compare-and-set DTO."""
+        self._require_supported_system()
         address = str(point.get("address", ""))
         if address not in BSB_WRITABLE_ADDRESSES:
             raise ValueError(f"BSB address {address or '<missing>'} is not writable")
@@ -851,6 +1508,15 @@ class ElcoApiClient:
         cooling: bool = False,
     ) -> None:
         """Write active heating or cooling temperatures as one atomic command."""
+        if self.system_type == SYSTEM_TYPE_GALEVO:
+            await self._async_set_galevo_zone_temperatures(
+                zone,
+                comfort=comfort,
+                reduced=reduced,
+                cooling=cooling,
+            )
+            return
+        self._require_supported_system()
         active_cooling = zone.cooling_active is True
         if cooling != active_cooling:
             requested = "Cooling" if cooling else "Heating"
@@ -887,6 +1553,15 @@ class ElcoApiClient:
         mode: int,
     ) -> None:
         """Write DHW temperatures and mode as one atomic command."""
+        if self.system_type == SYSTEM_TYPE_GALEVO:
+            await self._async_set_galevo_dhw(
+                plant,
+                comfort=comfort,
+                reduced=reduced,
+                mode=mode,
+            )
+            return
+        self._require_supported_system()
         plant.dhw_comfort_temperature.validate(comfort)
         plant.dhw_reduced_temperature.validate(reduced)
         allowed_modes = {option.value for option in plant.dhw_mode.options}
@@ -913,6 +1588,22 @@ class ElcoApiClient:
         mode: int,
     ) -> None:
         """Write a heating-zone mode while preserving required plant values."""
+        if self.system_type == SYSTEM_TYPE_GALEVO:
+            allowed_modes = {option.value for option in zone.mode.options}
+            if allowed_modes and mode not in allowed_modes:
+                raise ValueError(f"Unsupported zone mode: {mode}")
+            raw_mode = GALEVO_ZONE_MODE_TO_RAW.get(mode)
+            if raw_mode is None:
+                raise ValueError(f"Zone mode {mode} has no Galevo equivalent")
+            raw_current = zone.raw.get("mod", {}).get("value")
+            old_mode = int(raw_current) if raw_current is not None else raw_mode
+            await self.async_set_galevo_zone_mode(
+                zone.number,
+                raw_mode,
+                old_mode=old_mode,
+            )
+            return
+        self._require_supported_system()
         allowed_modes = {option.value for option in zone.mode.options}
         if allowed_modes and mode not in allowed_modes:
             raise ValueError(f"Unsupported zone mode: {mode}")
@@ -934,6 +1625,7 @@ class ElcoApiClient:
         starts_at: datetime,
     ) -> None:
         """Create or update Remocon's current holiday and force Automatic mode."""
+        self._require_supported_system()
         if starts_at.tzinfo is None or starts_at.utcoffset() is None:
             raise ValueError("Holiday start time must include a time zone")
         if ends_on < starts_at.date():
@@ -986,6 +1678,7 @@ class ElcoApiClient:
         zone: ZoneState,
     ) -> None:
         """Mark Remocon's current holiday deleted while preserving the zone mode."""
+        self._require_supported_system()
         plant_data, zone_data = self._set_data_snapshots(plant, zone)
         holidays = zone_data.get("holidays")
         if not isinstance(holidays, list):

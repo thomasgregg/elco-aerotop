@@ -11,12 +11,12 @@ from homeassistant.helpers.entity import EntityCategory
 
 from .capabilities import supports_cooling, supports_room_sensor
 from .coordinator import ElcoDataUpdateCoordinator
-from .entity import ElcoAerotopEntity
+from .entity import ElcoAerotopEntity, async_setup_platform_entities
 from .models import ElcoData
 
 
-def _system_boolean(data: ElcoData, item_id: str) -> bool | None:
-    item = data.discovery.system_item(item_id)
+def _system_boolean(data: ElcoData, item_id: str, zone: int = 0) -> bool | None:
+    item = data.discovery.system_item(item_id, zone)
     if not item or item.get("error") is True or item.get("invalid") is True:
         return None
     value = item.get("value")
@@ -88,7 +88,13 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities,
 ) -> None:
-    coordinator: ElcoDataUpdateCoordinator = entry.runtime_data
+    async_setup_platform_entities(entry, async_add_entities, _create_entities)
+
+
+def _create_entities(
+    coordinator: ElcoDataUpdateCoordinator,
+    async_add_entities,
+) -> None:
     data = coordinator.data
     features = data.discovery.features
     entities: list[BinarySensorEntity] = []
@@ -150,6 +156,38 @@ async def async_setup_entry(
                 lambda state: state.plant.dhw_enabled,
                 entity_category=EntityCategory.DIAGNOSTIC,
                 enabled_default=False,
+            )
+        )
+
+    for item_id, key, name, entity_category, enabled_default in (
+        (
+            "AutomaticThermoregulation",
+            "automatic_thermoregulation",
+            "Automatic thermoregulation",
+            EntityCategory.DIAGNOSTIC,
+            True,
+        ),
+        ("IsQuite", "quiet_mode", "Quiet mode", EntityCategory.DIAGNOSTIC, True),
+        ("IsDhwBoost", "dhw_boost", "Domestic hot water boost", None, True),
+        (
+            "IsResistorOn",
+            "resistor_on",
+            "Backup resistor active",
+            EntityCategory.DIAGNOSTIC,
+            True,
+        ),
+        ("Holiday", "holiday_active", "Holiday active", EntityCategory.DIAGNOSTIC, True),
+    ):
+        if data.discovery.system_item(item_id) is None:
+            continue
+        entities.append(
+            ElcoBinarySensor(
+                coordinator,
+                key,
+                name,
+                lambda state, source=item_id: _system_boolean(state, source),
+                entity_category=entity_category,
+                enabled_default=enabled_default,
             )
         )
 
@@ -240,6 +278,19 @@ async def async_setup_entry(
                     ),
                     entity_category=entity_category,
                     enabled_default=enabled_default,
+                )
+            )
+        if data.discovery.system_item("IsZonePilotOn", zone_number) is not None:
+            entities.append(
+                ElcoBinarySensor(
+                    coordinator,
+                    f"zone_{zone_number}_pilot",
+                    f"Zone {zone_number} pilot",
+                    lambda state, zone_id=zone_number: _system_boolean(
+                        state, "IsZonePilotOn", zone_id
+                    ),
+                    entity_category=EntityCategory.DIAGNOSTIC,
+                    enabled_default=False,
                 )
             )
         if supports_room_sensor(zone) and zone.room_temperature_error is not None:

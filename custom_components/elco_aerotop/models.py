@@ -206,7 +206,8 @@ def bsb_point_datetime(point: Any) -> datetime | None:
     if match is None:
         return None
     try:
-        return datetime(*(int(component) for component in match.groups()))
+        year, month, day, hour, minute, second = (int(component) for component in match.groups())
+        return datetime(year, month, day, hour, minute, second)
     except ValueError:
         return None
 
@@ -314,6 +315,110 @@ class SelectVariable:
         raise ValueError(f"Unsupported option: {label}")
 
 
+# Galevo zone modes (APK eZoneMode: Off=0, ManualNight=1, Manual=2, TimeProg=3)
+# normalized onto the canonical values used by control_mapping
+# (Protection=0, Automatic=1, Reduced=2, Comfort=3).
+_GALEVO_ZONE_MODE_MAP: dict[int, int] = {0: 0, 1: 2, 2: 3, 3: 1}
+
+# Galevo DHW modes (0=Disabled, 1=Time Based, 2=Always active) normalized onto
+# the canonical DHW values (0=off, 1=on, 3=performance). Time Based is the
+# regular scheduled mode (comfort inside the program windows, reduced outside)
+# and maps to "on"; Always active keeps the comfort temperature permanently,
+# which is the strongest mode -> "performance". None of the three modes means
+# a permanent reduced setpoint, so canonical "eco" is unused on Galevo.
+_GALEVO_DHW_MODE_MAP: dict[int, int] = {0: 0, 1: 1, 2: 3}
+
+# Fallback labels when a Galevo enum item arrives without optTexts (APK eZoneMode).
+_GALEVO_ZONE_MODE_LABELS: dict[int, str] = {
+    0: "Off",
+    1: "Manual night",
+    2: "Manual",
+    3: "Time program",
+}
+_GALEVO_DHW_MODE_LABELS: dict[int, str] = {
+    0: "Disabled",
+    1: "Time Based",
+    2: "Always active",
+}
+
+# Inverse maps for writes: canonical -> raw Galevo enum values. Both maps are
+# bijective, so the inverse is unambiguous.
+GALEVO_ZONE_MODE_TO_RAW: dict[int, int] = {v: k for k, v in _GALEVO_ZONE_MODE_MAP.items()}
+GALEVO_DHW_MODE_TO_RAW: dict[int, int] = {v: k for k, v in _GALEVO_DHW_MODE_MAP.items()}
+
+
+def _galevo_item(
+    items: dict[str, dict[str, Any]],
+    item_id: str,
+    zone: int = 0,
+) -> dict[str, Any] | None:
+    """Return one remote dataItems entry, keyed as ``<id>:<zone>``."""
+    item = items.get(f"{item_id}:{zone}")
+    return item if isinstance(item, dict) else None
+
+
+def _galevo_value(item: dict[str, Any] | None) -> float | None:
+    if item is None or item.get("invalid") is True:
+        return None
+    return _number(item.get("value"))
+
+
+def _galevo_bool(item: dict[str, Any] | None) -> bool | None:
+    if item is None:
+        return None
+    return _boolean(item.get("value"))
+
+
+def _galevo_numeric(item: dict[str, Any] | None) -> NumericVariable:
+    if not isinstance(item, dict):
+        return NumericVariable(value=None)
+    return NumericVariable(
+        value=_galevo_value(item),
+        minimum=_number(item.get("min")),
+        maximum=_number(item.get("max")),
+        step=_number(item.get("step")),
+    )
+
+
+def _galevo_select(
+    item: dict[str, Any] | None,
+    remap: dict[int, int] | None = None,
+    default_labels: dict[int, str] | None = None,
+) -> SelectVariable:
+    """Build a SelectVariable from a dataItems enum entry (options + optTexts)."""
+    if not isinstance(item, dict):
+        return SelectVariable(value=None)
+    raw_value = _galevo_value(item)
+    value = int(raw_value) if raw_value is not None else None
+    options: list[Option] = []
+    allowed = item.get("options")
+    labels = item.get("optTexts") or []
+    if isinstance(allowed, list):
+        for index, option_value in enumerate(allowed):
+            if not isinstance(option_value, int | float):
+                continue
+            raw_int = int(option_value)
+            if index < len(labels):
+                label = str(labels[index])
+            elif default_labels and raw_int in default_labels:
+                label = default_labels[raw_int]
+            else:
+                label = str(raw_int)
+            options.append(Option(raw_int, label))
+    if remap:
+        value = remap.get(value) if value is not None else None
+        options = [
+            Option(remap[option.value], option.label) for option in options if option.value in remap
+        ]
+    return SelectVariable(value=value, options=tuple(options))
+
+
+def _galevo_error(item: dict[str, Any] | None) -> bool | None:
+    if item is None:
+        return None
+    return item.get("error") is True or item.get("invalid") is True
+
+
 @dataclass(frozen=True, slots=True)
 class BsbHoliday:
     """One controller-backed holiday period for a heating zone."""
@@ -394,6 +499,36 @@ class PlantState:
             dhw_mode=SelectVariable.parse(raw.get("dhwMode", {})),
         )
 
+    @classmethod
+    def from_galevo(cls, items: dict[str, dict[str, Any]]) -> PlantState:
+        """Build plant state from a Galevo remote dataItems response."""
+        dhw_mode = _galevo_select(
+            _galevo_item(items, "DhwMode"),
+            remap=_GALEVO_DHW_MODE_MAP,
+            default_labels=_GALEVO_DHW_MODE_LABELS,
+        )
+        return cls(
+            raw={"dataItems": items},
+            outside_temperature=_galevo_value(_galevo_item(items, "OutsideTemp")),
+            heat_pump_on=_galevo_bool(_galevo_item(items, "IsHeatingPumpOn")),
+            flame_on=_galevo_bool(_galevo_item(items, "IsFlameOn")),
+            dhw_enabled=None if dhw_mode.value is None else dhw_mode.value != 0,
+            dhw_current_temperature=_galevo_value(
+                _galevo_item(items, "DhwStorageTemperature") or _galevo_item(items, "DhwTemp")
+            ),
+            outside_temperature_error=_galevo_error(_galevo_item(items, "OutsideTemp")),
+            dhw_temperature_error=_galevo_error(
+                _galevo_item(items, "DhwStorageTemperature") or _galevo_item(items, "DhwTemp")
+            ),
+            has_outside_temperature_probe=None,
+            has_dhw_temperature_probe=None,
+            dhw_comfort_temperature=_galevo_numeric(
+                _galevo_item(items, "DhwTimeProgComfortTemp") or _galevo_item(items, "DhwTemp")
+            ),
+            dhw_reduced_temperature=_galevo_numeric(_galevo_item(items, "DhwTimeProgEconomyTemp")),
+            dhw_mode=dhw_mode,
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class ZoneState:
@@ -461,6 +596,74 @@ class ZoneState:
             heat_or_cool_request=_boolean(_first(raw, "heatOrCoolRequest", "heatOrCoolReq")),
         )
 
+    @classmethod
+    def from_galevo(
+        cls,
+        number: int,
+        raw: dict[str, Any],
+        items: dict[str, dict[str, Any]],
+        feature_zone: dict[str, Any] | None = None,
+    ) -> ZoneState:
+        """Build zone state from a Galevo zones/{zn} payload plus dataItems."""
+        raw_mod = raw.get("mod")
+        mod = raw_mod if isinstance(raw_mod, dict) else {}
+        mode = _galevo_select(
+            _galevo_item(items, "ZoneMode", number),
+            remap=_GALEVO_ZONE_MODE_MAP,
+            default_labels=_GALEVO_ZONE_MODE_LABELS,
+        )
+        if mode.value is None and not mode.options:
+            # zones/{zn}/mod carries value+allowedOptions but no labels.
+            mode = _galevo_select(
+                {"value": mod.get("value"), "options": mod.get("allowedOptions")},
+                remap=_GALEVO_ZONE_MODE_MAP,
+                default_labels=_GALEVO_ZONE_MODE_LABELS,
+            )
+        comfort = NumericVariable.parse(raw.get("comf", {}))
+        if comfort.value is None:
+            comfort = _galevo_numeric(_galevo_item(items, "ZoneComfortTemp", number))
+        reduced = NumericVariable.parse(raw.get("econ", {}))
+        if reduced.value is None:
+            reduced = _galevo_numeric(_galevo_item(items, "ZoneEconomyTemp", number))
+        has_room_sensor = _boolean((feature_zone or {}).get("roomSens"))
+        room_temperature = (
+            _number(raw.get("room"))
+            if _number(raw.get("room")) not in (None, 0.0)
+            else _galevo_value(_galevo_item(items, "ZoneMeasuredTemp", number))
+        )
+        if has_room_sensor is False:
+            # Galevo reports 0 °C for zones without a room probe.
+            room_temperature = None
+        return cls(
+            number=number,
+            raw=raw,
+            holidays=(),
+            mode=mode,
+            comfort_temperature=comfort,
+            reduced_temperature=reduced,
+            cooling_comfort_temperature=_galevo_numeric(
+                _galevo_item(items, "ZoneComfortCoolingTemp", number)
+            ),
+            cooling_reduced_temperature=_galevo_numeric(
+                _galevo_item(items, "ZoneEconomyCoolingTemp", number)
+            ),
+            heating_protection_temperature=_number(raw.get("antiFreezeTemp"))
+            or _galevo_value(_galevo_item(items, "ZoneAntiFreezeTemp", number)),
+            cooling_protection_temperature=None,
+            heating_holiday_temperature=None,
+            cooling_holiday_temperature=None,
+            desired_temperature=_number(raw.get("desired"))
+            if raw.get("desired") is not None
+            else _galevo_value(_galevo_item(items, "ZoneDesiredTemp", number)),
+            room_temperature=room_temperature,
+            room_temperature_error=_galevo_error(_galevo_item(items, "ZoneMeasuredTemp", number)),
+            has_room_sensor=has_room_sensor,
+            use_reduced_operation_mode_on_holiday=None,
+            heating_active=_boolean(raw.get("heat")),
+            cooling_active=None,
+            heat_or_cool_request=_galevo_bool(_galevo_item(items, "ZoneHeatRequest", number)),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class ReadOnlyDiscovery:
@@ -481,7 +684,16 @@ class ReadOnlyDiscovery:
     bsb_points: dict[str, Any] = field(default_factory=dict)
     bsb_plant_data: dict[str, Any] = field(default_factory=dict)
     menu_items: dict[str, dict[str, Any]] = field(default_factory=dict)
+    bus_devices: list[dict[str, Any]] = field(default_factory=list)
+    # Galevo consumption series from reports/consSequencesApi8: [{k, p, v}]
+    # with k=eEnergyUsageDto value, p=eSequencePeriod, v=kWh buckets.
+    energy_sequences: list[dict[str, Any]] = field(default_factory=list)
     probe_status: dict[str, str] = field(default_factory=dict)
+    # Controller family from the Features response (const SYSTEM_TYPE_*).
+    # Entity platforms use this to register only entities whose backing
+    # protocol the family supports (BSB point/address entities vs Galevo
+    # data-item entities).
+    system_type: int | None = None
 
     def system_item(self, item_id: str, zone: int = 0) -> dict[str, Any] | None:
         """Return a discovered system-data item."""

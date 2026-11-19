@@ -1,6 +1,47 @@
+[project]
+name = "elco-aerotop"
+version = "0.3.17"
+description = "Home Assistant integration for ELCO Aerotop heat pumps via Remocon.net"
+requires-python = ">=3.12"
+dependencies = [
+    "aiohttp>=3.9",
+    "voluptuous>=0.13",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+    # Matches the Home Assistant version in the dev/test container.
+    # HA 2026.11 requires Python >=3.14.2; on older interpreters the
+    # package is skipped and the tests' local HA stubs still apply.
+    "homeassistant==2026.11.0 ; python_full_version >= '3.14.2'",
+    "pytest-homeassistant==2026.11.0 ; python_full_version >= '3.14.2'",
+    "ty>=0.0.107",
+]
+
+[tool.ty.src]
+include = ["custom_components", "tools"]
+
+[tool.ty.environment]
+python = ".venv"
+python-version = "3.12"
+
+[tool.ty.rules]
+# Home Assistant marks deprecated entity properties (current_temperature,
+# current_operation, ...) as Final/read-only on the entity base classes;
+# overriding them is the supported way for custom components to keep
+# working until the deprecated properties are removed.
+incompatible-property-override = "ignore"
+override-of-final-variable = "ignore"
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# respx's pytest plugin imports httpx at load time; HA's httpx2 alias must
+# run first (pytest_homeassistant.bootstrap), so keep respx unloaded.
+addopts = "-p no:respx"
 
 [tool.ruff]
 target-version = "py312"

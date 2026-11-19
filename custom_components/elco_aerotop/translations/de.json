@@ -1,0 +1,51 @@
+{
+  "title": "ELCO Aerotop",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Mit ELCO Remocon.net verbinden",
+        "description": "Gib deine Remocon.net-Zugangsdaten ein. Dein Gateway wird automatisch erkannt.",
+        "data": {
+          "username": "E-Mail",
+          "password": "Passwort",
+          "base_url": "Remocon.net-URL"
+        }
+      },
+      "gateway": {
+        "title": "Gateway auswählen",
+        "description": "Auf deinem Konto wurden mehrere Gateways gefunden. Wähle das zu integrierende aus.",
+        "data": {
+          "gateway_id": "Gateway"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Erneut mit ELCO Remocon.net verbinden",
+        "data": {
+          "username": "E-Mail",
+          "password": "Passwort"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Verbindung zu Remocon.net nicht möglich",
+      "invalid_auth": "Ungültige E-Mail oder Passwort",
+      "no_gateways": "Auf diesem Konto wurden keine Gateways gefunden",
+      "unknown": "Unerwarteter Fehler"
+    },
+    "abort": {
+      "already_configured": "Dieses Gateway ist bereits konfiguriert",
+      "no_gateways": "Auf diesem Konto wurden keine Gateways gefunden",
+      "reauth_successful": "Authentifizierung erfolgreich aktualisiert"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "ELCO Aerotop-Optionen",
+        "data": {
+          "scan_interval": "Abfrageintervall in Sekunden"
+        }
+      }
+    }
+  }
+}

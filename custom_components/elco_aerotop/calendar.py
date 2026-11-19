@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from .coordinator import ElcoDataUpdateCoordinator
-from .entity import ElcoAerotopEntity
+from .entity import ElcoAerotopEntity, async_setup_platform_entities
 from .holiday import has_holiday_source
 from .models import BsbHoliday, ElcoData
 
@@ -96,7 +96,13 @@ async def async_setup_entry(
     async_add_entities,
 ) -> None:
     """Set up one read-only holiday calendar for each BSB zone."""
-    coordinator: ElcoDataUpdateCoordinator = entry.runtime_data
+    async_setup_platform_entities(entry, async_add_entities, _create_entities)
+
+
+def _create_entities(
+    coordinator: ElcoDataUpdateCoordinator,
+    async_add_entities,
+) -> None:
     async_add_entities(
         ElcoHolidayCalendar(coordinator, zone_number)
         for zone_number, zone in coordinator.data.zones.items()

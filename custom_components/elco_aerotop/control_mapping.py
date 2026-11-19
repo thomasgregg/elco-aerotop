@@ -12,6 +12,9 @@ ZONE_MODE_COMFORT = 3
 DHW_MODE_OFF = 0
 DHW_MODE_ON = 1
 DHW_MODE_ECO = 2
+# Galevo "Always active" — permanent comfort temperature, stronger than the
+# scheduled "on" mode. BSB never advertises it.
+DHW_MODE_PERFORMANCE = 3
 
 PRESET_PROTECTION = "Protection"
 
@@ -24,6 +27,7 @@ _DHW_OPERATIONS = {
     DHW_MODE_OFF: "off",
     DHW_MODE_ON: "heat_pump",
     DHW_MODE_ECO: "eco",
+    DHW_MODE_PERFORMANCE: "performance",
 }
 
 
@@ -108,3 +112,21 @@ def dhw_mode_for_operation(variable: SelectVariable, operation: str) -> int:
         if operation == mapped_operation and value in supported:
             return value
     raise ValueError(f"Unsupported DHW operation: {operation}")
+
+
+def dhw_galevo_operation(variable: SelectVariable) -> str | None:
+    """Return the gateway's own label for the current DHW mode."""
+    return variable.current_label
+
+
+def dhw_galevo_operations(variable: SelectVariable) -> tuple[str, ...]:
+    """Return the gateway's own DHW mode labels as operations."""
+    return tuple(option.label for option in variable.options)
+
+
+def dhw_galevo_mode_for_operation(variable: SelectVariable, operation: str) -> int:
+    """Return the canonical controller mode for a gateway DHW label."""
+    try:
+        return variable.value_for_label(operation)
+    except ValueError as err:
+        raise ValueError(f"Unsupported DHW operation: {operation}") from err

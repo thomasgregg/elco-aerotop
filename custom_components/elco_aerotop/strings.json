@@ -4,12 +4,18 @@
     "step": {
       "user": {
         "title": "Connect to ELCO Remocon.net",
-        "description": "Enter your Remocon.net credentials and the gateway ID from your plant dashboard URL.",
+        "description": "Enter your Remocon.net credentials. Your gateway is detected automatically.",
         "data": {
           "username": "Email",
           "password": "Password",
-          "gateway_id": "Gateway ID",
           "base_url": "Remocon.net URL"
+        }
+      },
+      "gateway": {
+        "title": "Select a gateway",
+        "description": "Multiple gateways were found on your account. Pick the one to integrate.",
+        "data": {
+          "gateway_id": "Gateway"
         }
       },
       "reauth_confirm": {
@@ -23,10 +29,12 @@
     "error": {
       "cannot_connect": "Unable to connect to Remocon.net",
       "invalid_auth": "Invalid email or password",
+      "no_gateways": "No gateways were found on this account",
       "unknown": "Unexpected error"
     },
     "abort": {
       "already_configured": "This gateway is already configured",
+      "no_gateways": "No gateways were found on this account",
       "reauth_successful": "Authentication updated successfully"
     }
   },

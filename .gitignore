@@ -6,3 +6,5 @@ htmlcov/
 *.py[cod]
 *.egg-info/
 .venv/
+captures/
+tools/

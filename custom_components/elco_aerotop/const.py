@@ -25,6 +25,7 @@ PLATFORMS: Final = [
     "number",
     "select",
     "sensor",
+    "switch",
     "water_heater",
 ]
 
@@ -41,6 +42,57 @@ BSB_PLANT_DATA_PATH: Final = "/api/v2/remote/bsbPlantData/{gateway_id}"
 MENU_ITEMS_PATH: Final = "/api/v2/menuItems/{gateway_id}?menuItems={item_ids}"
 PLANTS_LITE_PATH: Final = "/api/v2/remote/plants/lite"
 PLANT_HEADER_PATH: Final = "/R2/Plant/PlantHeader/{gateway_id}"
+
+# Controller families reported by Features plant.systemType (APK eGwSystemTypeDto).
+SYSTEM_TYPE_GALILEO1: Final = 1
+SYSTEM_TYPE_GALILEO2: Final = 2
+SYSTEM_TYPE_GALEVO: Final = 3
+SYSTEM_TYPE_VELIS: Final = 4
+SYSTEM_TYPE_BSB: Final = 5
+SYSTEM_TYPE_AC: Final = 10
+
+# Galevo-family mobile reads (APK ZoneService/PlantService/DataItemService).
+GALEVO_ZONE_PATH: Final = "/api/v2/remote/zones/{gateway_id}/{zone}"
+GALEVO_HOME_DATA_PATH: Final = "/R2/PlantHome/GetData/{gateway_id}"
+# R2 PlantHome/SetData: browser-app write path, verified in the HAR capture —
+# kept documented (see docs/protocol.md) though plant-mode writes now use the
+# mobile plantData/{gw}/mode route verified live on 2026-11-19.
+GALEVO_SET_DATA_PATH: Final = "/R2/PlantHome/SetData/{gateway_id}?umsys=si"
+# Galevo write paths (mobile API). Contracts verified from the APK proxies:
+# ChangeValueDto {new, old} for scalars/enums (wire names from
+# ChangeValueDtoSerializer, not the Kotlin property names), TemperaturesDto
+# {comf, econ} for temperature pairs, SetDataItemsRequest
+# {features, items: [DataItemDto + prevValue + prevExpiresOn]} for
+# dataItems/set (DataItemProxy/ZoneProxy/PlantDataProxy).
+GALEVO_DATA_ITEMS_SET_PATH: Final = "/api/v2/remote/dataItems/{gateway_id}/set"
+GALEVO_ZONE_MODE_PATH: Final = "/api/v2/remote/zones/{gateway_id}/{zone}/mode"
+GALEVO_ZONE_TEMPERATURES_PATH: Final = "/api/v2/remote/zones/{gateway_id}/{zone}/temperatures"
+GALEVO_PLANT_MODE_PATH: Final = "/api/v2/remote/plantData/{gateway_id}/mode"
+GALEVO_DHW_TEMP_PATH: Final = "/api/v2/remote/plantData/{gateway_id}/dhwTemp"
+GALEVO_DHW_MODE_PATH: Final = "/api/v2/remote/plantData/{gateway_id}/dhwMode"
+GALEVO_DHW_TIME_PROG_TEMPERATURES_PATH: Final = (
+    "/api/v2/remote/plantData/{gateway_id}/dhwTimeProgTemperatures"
+)
+# Holiday scheduling (PlantDataProxy.setHoliday/resetHoliday): ChangeValueDto
+# of LocalDateTime — new=start, old=end; reset sends old only.
+GALEVO_HOLIDAY_PATH: Final = "/api/v2/remote/plantData/{gateway_id}/holiday"
+# Consumption time series (ReportProxy.consKwhSequences): usages are
+# comma-joined eEnergyUsageDto names; response items {k, p, v} carry
+# kind (eEnergyUsageDto value), period (eSequencePeriod 1-4) and kWh buckets.
+GALEVO_CONS_SEQUENCES_PATH: Final = (
+    "/api/v2/remote/reports/{gateway_id}/consSequencesApi8?usages=Ch,Dhw,Cooling&hasSlp=false"
+)
+# Master switch for Galevo write requests. Request contracts are extracted
+# from the APK proxies (docs/protocol.md) but not yet exercised against a
+# live plant — keep this off until a write is tested deliberately.
+# Master switch for all Galevo writes (APK-verified contracts). Enabled by
+# the user after the contracts were validated; flip back to False to
+# disable every Galevo write path without touching entity definitions.
+GALEVO_WRITES_ENABLED: Final = True
+GALEVO_SYSTEM_STATE_PATH: Final = "/api/v2/remote/plantData/{gateway_id}/systemState"
+GALEVO_TIME_PROG_PATH: Final = "/api/v2/remote/timeProgs/{gateway_id}/{program_id}"
+GALEVO_GATEWAY_INFO_PATH: Final = "/api/v2/remote/plants/{gateway_id}/gatewayInfo"
+GALEVO_BUS_DEVICES_PATH: Final = "/api/v2/remote/plants/{gateway_id}/busDevices"
 PLANT_USER_DATA_PATH: Final = "/R2/PlantData/GetUserData?id={gateway_id}"
 BSB_TIME_PROGRAM_PATH: Final = "/R2/PlantTimeProgBsb/GetData/{gateway_id}"
 METERING_PATH: Final = "/R2/PlantMetering/GetData/{gateway_id}"
@@ -170,7 +222,12 @@ BSB_DISCOVERY_GROUPS: Final = {
         for slot, addresses in BSB_ENERGY_HISTORY_ADDRESSES.items()
     },
 }
-GLOBAL_DATA_ITEM_IDS: Final = (
+# Galevo data-item catalog (APK eDataItemId, verified against a live Galevo
+# gateway). Requested via POST /api/v2/remote/dataItems/{gw}/get on Galevo —
+# the authoritative read surface there. On BSB gateways the same endpoint is
+# only tried as an optional discovery probe; items the controller does not
+# expose are simply omitted from the response.
+GALEVO_GLOBAL_DATA_ITEM_IDS: Final = (
     "HeatingCircuitPressure",
     "ChFlowTemp",
     "ChFlowSetpointTemp",
@@ -190,7 +247,15 @@ GLOBAL_DATA_ITEM_IDS: Final = (
     "AntilegionellaTemp",
     "AntilegionellaFreq",
     "HybridMode",
+    "IsResistorOn",
+    "IsDhwBoost",
     "BufferControlMode",
+    # Advanced-settings page items (quiet mode, eco logic); absent on plants
+    # without them, the server omits them.
+    "QuietModeStart",
+    "QuietModeEnd",
+    "Em30QuietOptions",
+    "SavingEcologyLogic",
     "BufferTimeProgComfortHeatingTemp",
     "BufferTimeProgEconomyHeatingTemp",
     "BufferTimeProgComfortCoolingTemp",
@@ -198,13 +263,17 @@ GLOBAL_DATA_ITEM_IDS: Final = (
     # This spelling is used by the Remocon API.
     "IsQuite",
 )
-ZONE_DATA_ITEM_IDS: Final = (
+GALEVO_ZONE_DATA_ITEM_IDS: Final = (
     "ZoneHeatRequest",
     "ZoneMode",
     "ZoneDesiredTemp",
     "ZoneMeasuredTemp",
     "ZoneDeroga",
     "ZoneComfortTemp",
+    "ZoneComfortCoolingTemp",
+    "ZoneEconomyCoolingTemp",
+    "ZoneAntiFreezeTemp",
+    "ZoneFireplace",
     "IsZonePilotOn",
     "ZoneEconomyTemp",
     "HeatingFlowTemp",

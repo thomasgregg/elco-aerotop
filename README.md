@@ -42,10 +42,12 @@ integration, so it requires internet access and a working Remocon.net account; i
 directly to the heat pump over the local network.
 
 > [!IMPORTANT]
-> The integration currently supports the **BSB controller family** (`systemType: 5`), whose Remocon
-> plant URL contains `/R2/BsbPlantDashboard/Index/`. It does not yet support the **GALEVO controller
-> family** (`systemType: 3`), whose plant URL contains `/R2/Plant/Index/`. Compatibility is determined
-> by the controller and gateway family, not by the Aerotop model name alone.
+> The integration supports both the **BSB controller family** (`systemType: 5`), whose Remocon
+> plant URL contains `/R2/BsbPlantDashboard/Index/`, and the **GALEVO controller family**
+> (`systemType: 3`), whose plant URL contains `/R2/Plant/Index/`. The family is detected per
+> gateway during setup, and each controller only exposes the entities its API surface supports.
+> Compatibility is determined by the controller and gateway family, not by the Aerotop model
+> name alone.
 
 ![ELCO Aerotop heating and hot-water dashboard in Home Assistant](docs/images/home-assistant-dashboard.png)
 
@@ -56,12 +58,13 @@ directly to the heat pump over the local network.
 | Monitor the system | Temperatures, pressure, flow values, operating state, and heat demand |
 | Control room heating and cooling | A thermostat for each supported zone, with cooling controls while Remocon reports cooling active |
 | Control hot water | A native water-heater entity with target temperature and operating mode |
-| Manage the current holiday | Read holiday periods in a calendar and set or cancel Remocon's immediate holiday |
-| Tune heating behavior | Allowlisted controls for holiday level, frost setpoint, heating curve, and summer/winter limit |
+| Switch the plant mode | Summer, winter, heating-only, cooling, and off modes where the gateway offers them |
+| Manage the current holiday | Read holiday periods in a calendar and set or cancel Remocon's immediate holiday; GALEVO additionally exposes a holiday switch plus start/end dates |
+| Tune heating behavior | Allowlisted controls for holiday level, frost setpoint, heating curve, and summer/winter limit; quiet mode, DHW boost, and automatic thermoregulation on GALEVO |
 | Build automations | Use temperatures, demand, operating state, and holiday periods as inputs |
 | Find problems | Controller errors, probe faults, maintenance codes, and appliance-health data |
 | Check the installation | Gateway connectivity, plant status, controller model, owner, location, and gateway version |
-| Investigate efficiency | Optional historical heat, cooling, input-energy, and performance records |
+| Investigate efficiency | Energy consumption history (GALEVO: heating/DHW/cooling usage from Remocon reports; BSB: optional historical heat, cooling, input-energy, and performance records) |
 
 The exact controls and readings depend on what the gateway reports. Unsupported capabilities are
 not presented as working controls, while temporarily missing controller values become unavailable
@@ -76,41 +79,54 @@ ELCO Aerotop coordinator ──► Remocon.net cloud ──► ELCO gateway ─�
           └── one fresh, validated and serialized request path for all writes
 ```
 
-Setup is handled through the Home Assistant interface with no YAML required. Heating zones and
-available values are discovered automatically. The default polling interval is one hour, writes
-are serialized and validated against current gateway data, and authentication renewal is handled
-through Home Assistant's normal reauthentication flow.
+Setup is handled through the Home Assistant interface with no YAML required. After signing in,
+the gateways registered to the Remocon account are listed and one or more can be selected; each
+selected gateway becomes its own config entry. The controller family, heating zones, and
+available values are discovered automatically, and the first data fetch runs in the background
+so a slow gateway does not delay Home Assistant startup. The default polling interval is one
+hour, writes are serialized and validated against current gateway data, and authentication
+renewal is handled through Home Assistant's normal reauthentication flow.
 
 ## Entities
 
 All entities belong to the ELCO Aerotop device, and the exact set is determined by the gateway's
-capabilities. The default device page focuses on native thermostat and hot-water controls,
-everyday measurements, and important fault information. Alternative controls, specialist
-diagnostics, low-level BSB values, and the 80 historical energy entities are available but mostly
-disabled by default to avoid overwhelming a normal installation. All eight entities belonging to
-each annual energy record now share a common display-name prefix.
+controller family and reported capabilities. Entities are family-aware: BSB datapoint entities
+(low-level 7xx parameters, boiler/maintenance details, the 80 historical energy records) are
+only created on BSB gateways, while GALEVO data-item entities (plant mode, quiet mode, DHW
+boost, thermoregulation, energy consumption reports) are only created on GALEVO gateways. The
+default device page focuses on native thermostat and hot-water controls, everyday measurements,
+and important fault information. Alternative controls and specialist diagnostics are available
+but mostly disabled by default to avoid overwhelming a normal installation.
 
 The [entity reference](docs/entities.md) contains the complete tables, entity-ID patterns, default
 states, creation conditions, read/write behavior, and explanations of maintenance, holiday, and
-energy values. Existing entity IDs and enabled/disabled choices are preserved during upgrades;
-new defaults apply only when an entity is first registered.
+energy values—including which entities exist for each controller family. Existing entity IDs and
+enabled/disabled choices are preserved during upgrades; new defaults apply only when an entity is
+first registered.
 
 Remocon installation metadata is exposed as diagnostic entities when its JSON APIs return a
 value. This includes gateway online state, overall plant status, appliance model and serial,
-plant owner, account language, plant name/location, gateway serial, and gateway version. Owner
-phone fields are optional and disabled by default. The controller's read-only clock is exposed as
-a diagnostic timestamp. A separate **Last successful update** timestamp records when the
-integration most recently completed a core Remocon data capture, including successful polls whose
-values did not change. Remocon's **Connectivity Gateway** software
-value and the integration's **Gateway firmware** value both come from `gwFwVer`; the integration
-creates one version sensor and also reuses that value in Home Assistant's device information.
+plant owner, account language, plant name/location, gateway serial, and gateway version. Some
+metadata endpoints are BSB-only; the corresponding entities are not created on GALEVO. Owner
+phone fields are optional and disabled by default. A separate **Last successful update**
+timestamp records when the integration most recently completed a core Remocon data capture,
+including successful polls whose values did not change. Remocon's **Connectivity Gateway**
+software value and the integration's **Gateway firmware** value both come from `gwFwVer`; the
+integration creates one version sensor and also reuses that value in Home Assistant's device
+information.
 
 ## Holidays
 
-Holiday support deliberately separates **viewing** from **writing**. Each zone's Home Assistant
-calendar is a read-only view of the valid holiday periods returned by the ELCO controller. The
-separate operating-level select, **Holiday until** date, and **Cancel holiday** button provide the
-reviewed write path for Remocon's immediate/current-holiday workflow.
+Holiday support deliberately separates **viewing** from **writing**, and the write path differs by
+controller family:
+
+- **BSB**: each zone's Home Assistant calendar is a read-only view of the valid holiday periods
+  returned by the controller. The separate operating-level select, **Holiday until** date, and
+  **Cancel holiday** button provide the reviewed write path for Remocon's immediate
+  current-holiday workflow.
+- **GALEVO**: holiday state is exposed as data items—a **Holiday** switch plus **Holiday start**
+  and **Holiday end** date entities, and the zone holiday operating level as a select. Writes use
+  the mobile data-item endpoints with optimistic concurrency.
 
 Setting a final day starts a new holiday now or changes the current holiday's inclusive final day,
 and changes the zone to Automatic mode just like Remocon. Cancelling the holiday does not restore
@@ -189,16 +205,12 @@ updates through HACS without reinstalling.
 |---|:---:|---|---|
 | Email | Yes | — | Email address used to sign in to Remocon.net. |
 | Password | Yes | — | Remocon.net account password. |
-| Gateway ID | Yes | — | Identifier at the end of the plant dashboard URL. It is normalized to uppercase. |
 | Remocon.net URL | No | `https://www.remocon-net.remotethermo.com` | Service base URL. Keep the default unless the plant uses another branded Remocon endpoint. |
 
-The gateway ID is normally the final part of a dashboard URL, for example:
-
-```text
-https://www.remocon-net.remotethermo.com/R2/BsbPlantDashboard/Index/GATEWAY_ID
-```
-
-One gateway can only be configured once. Multiple gateways may be added as separate integrations.
+After the credentials are validated, the integration lists the gateways registered to the
+account—including plant name, location, and controller family—and one or more gateways can be
+selected. Each selected gateway becomes its own config entry and device. A gateway can only be
+configured once; gateways already set up are hidden from the selection.
 
 ## Options
 
@@ -241,6 +253,12 @@ successful. If it confirms old values, the command reports that it was not appli
 also fails—or Remocon supplies `Retry-After`—the integration reports that the outcome is unknown
 and asks the user to check the controller or official application. This avoids duplicate writes
 while still recovering automatically from a lost success response.
+
+On GALEVO, an HTTP `200` success is **not** treated as proof the value changed: the mobile
+`plantData/mode` endpoint acknowledges commands without applying them, so the plant-mode write
+uses the R2 `SetData` route with the full feature/item/view-model payload, and every write is
+confirmed by `changedItems` or a fresh read. A response that acknowledges without changing state
+is reported as a failed write, not a successful one.
 
 Polling and optional discovery use the same gateway-traffic lock. Optional discovery releases it
 between requests so a user command can proceed without overlapping controller traffic.
@@ -383,17 +401,12 @@ different controller and gateway families.
 | Controller family | How to identify it | Current status |
 |---|---|---|
 | BSB (`systemType: 5`) | The plant URL contains `/R2/BsbPlantDashboard/Index/` and the gateway exposes `PlantHomeBsb/GetData` | Supported; available entities still depend on the capabilities and values reported by the gateway |
-| GALEVO (`systemType: 3`) | The plant URL contains `/R2/Plant/Index/`; the BSB core endpoint normally returns HTTP 404 | Not currently supported; setup cannot complete because GALEVO uses the separate `dataItems` state and command model |
+| GALEVO (`systemType: 3`) | The plant URL contains `/R2/Plant/Index/`; BSB `GetData` requests are rejected | Supported via the mobile `api/v2` surface plus R2 `SetData` plant-mode writes; available entities differ from BSB—see [entities](docs/entities.md) |
 
-The cloud API is undocumented and model capabilities vary, so formal compatibility is still being
-established. If the plant uses another URL or controller family, do not assume that setup will work
-solely because the appliance is branded Aerotop.
-
-As an interim option, GALEVO users may test the third-party
-[Ariston integration](https://github.com/fustom/ariston-remotethermo-home-assistant-v3), which has a
-GALEVO backend and accepts a custom API address. The expected ELCO API address is
-`https://www.remocon-net.remotethermo.com/api/v2/`. This combination has not been verified by this
-project, so it should be treated as a possible workaround rather than confirmed compatibility.
+Other controller families are not supported. The cloud API is undocumented and model capabilities
+vary, so formal compatibility is still being established. If the plant uses another URL or
+controller family, do not assume that setup will work solely because the appliance is branded
+Aerotop.
 
 When reporting a working or non-working model, include the exact Aerotop model, gateway type,
 controller family or plant URL shape, firmware version if known, number of heating zones, and which
@@ -405,18 +418,19 @@ tokens, cookies, or unredacted payloads.
 The reverse-engineered request contract, endpoint selection, and contribution safety rules are
 documented in [`docs/protocol.md`](docs/protocol.md).
 
-Create a Python 3.12 or newer environment and install the test dependencies:
+The project is managed with [uv](https://docs.astral.sh/uv/) (requires Python 3.12 or newer):
 
 ```bash
-python -m pip install aiohttp pytest pytest-asyncio ruff
+uv sync --group dev
 ```
 
 Run all local checks:
 
 ```bash
-ruff check .
-ruff format --check .
-pytest
+uv run pytest
+uv run ruff check .
+uv run ruff format --check .
+uv run ty check
 ```
 
 GitHub Actions additionally runs Home Assistant hassfest and HACS repository validation.

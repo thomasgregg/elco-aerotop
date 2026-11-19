@@ -212,7 +212,7 @@ class FakeApi:
             raise response
         return response
 
-    async def async_get_system_items(self, _features, _zones):
+    async def async_get_system_items(self, _features, _zones, **_kwargs):
         return {}
 
     def _record_write(self, name: str, args: tuple, kwargs: dict) -> None:
@@ -900,3 +900,75 @@ async def test_write_refresh_does_not_launch_slow_discovery() -> None:
     assert coordinator._skip_slow_discovery_once is False
     assert coordinator._polls_until_slow_discovery == 0
     coordinator.start_deferred_discovery.assert_not_called()
+
+
+def test_deferred_platform_unload_removes_listener_only_once() -> None:
+    """The deferred-setup listener must survive a double removal.
+
+    Real HA pops coordinator listeners by id (non-idempotent); the lazy-setup
+    path removes the listener on first data AND registers it on entry unload,
+    so unloading after a successful poll must not raise KeyError.
+    """
+    from homeassistant.helpers import update_coordinator as ha_update_coordinator
+
+    class CoordinatorEntity:
+        def __class_getitem__(cls, _item):
+            return cls
+
+        def __init__(self, coordinator) -> None:
+            self.coordinator = coordinator
+
+    ha_update_coordinator.CoordinatorEntity = CoordinatorEntity
+    device_registry = ModuleType("homeassistant.helpers.device_registry")
+    device_registry.DeviceInfo = dict
+    entity_platform = ModuleType("homeassistant.helpers.entity_platform")
+    entity_platform.AddEntitiesCallback = object
+    sys.modules.setdefault("homeassistant.helpers.device_registry", device_registry)
+    sys.modules.setdefault("homeassistant.helpers.entity_platform", entity_platform)
+
+    from custom_components.elco_aerotop.entity import async_setup_platform_entities
+
+    class FakeCoordinator:
+        def __init__(self) -> None:
+            self.data = None
+            self._listeners: dict[int, object] = {}
+            self._last_listener_id = 0
+
+        def async_add_listener(self, callback, _context=None):
+            self._last_listener_id += 1
+            listener_id = self._last_listener_id
+            self._listeners[listener_id] = callback
+
+            def remove() -> None:
+                self._listeners.pop(listener_id)
+
+            return remove
+
+    class FakeEntry:
+        def __init__(self, coordinator) -> None:
+            self.runtime_data = coordinator
+            self.on_unload: list = []
+
+        def async_on_unload(self, func) -> None:
+            self.on_unload.append(func)
+
+    coordinator = FakeCoordinator()
+    entry = FakeEntry(coordinator)
+    created: list = []
+
+    async_setup_platform_entities(
+        entry,
+        lambda _entities: None,
+        lambda _coordinator, _add: created.append(True),
+    )
+
+    # First data arrives: listener consumes itself and entities are created.
+    coordinator.data = object()
+    for listener in list(coordinator._listeners.values()):
+        listener()
+    assert created == [True]
+    assert coordinator._listeners == {}
+
+    # Entry unload replays the same remover — must not raise KeyError.
+    for job in entry.on_unload:
+        job()

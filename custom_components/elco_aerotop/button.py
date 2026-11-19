@@ -7,10 +7,27 @@ from typing import override
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 
 from .coordinator import ElcoDataUpdateCoordinator
-from .entity import ElcoAerotopEntity
+from .entity import ElcoAerotopEntity, async_setup_platform_entities
 from .holiday import current_holiday, has_holiday_source
+
+
+class ElcoRefreshButton(ElcoAerotopEntity, ButtonEntity):
+    """Trigger an immediate coordinator refresh of all gateway data."""
+
+    _attr_icon = "mdi:refresh"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_name = "Refresh"
+
+    def __init__(self, coordinator: ElcoDataUpdateCoordinator) -> None:
+        super().__init__(coordinator, "refresh")
+
+    @override
+    async def async_press(self) -> None:
+        """Fetch fresh data from the gateway right now."""
+        await self.coordinator.async_request_refresh()
 
 
 class ElcoCancelHolidayButton(ElcoAerotopEntity, ButtonEntity):
@@ -42,9 +59,20 @@ async def async_setup_entry(
     async_add_entities,
 ) -> None:
     """Set up one cancel button for each capable BSB zone."""
-    coordinator: ElcoDataUpdateCoordinator = entry.runtime_data
+    async_setup_platform_entities(entry, async_add_entities, _create_entities)
+
+
+def _create_entities(
+    coordinator: ElcoDataUpdateCoordinator,
+    async_add_entities,
+) -> None:
     async_add_entities(
-        ElcoCancelHolidayButton(coordinator, zone_number)
-        for zone_number, zone in coordinator.data.zones.items()
-        if has_holiday_source(zone)
+        [
+            ElcoRefreshButton(coordinator),
+            *(
+                ElcoCancelHolidayButton(coordinator, zone_number)
+                for zone_number, zone in coordinator.data.zones.items()
+                if has_holiday_source(zone)
+            ),
+        ]
     )

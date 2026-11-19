@@ -14,9 +14,9 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.util import dt as dt_util
 
 from .capabilities import supports_cooling, supports_room_sensor
-from .const import BSB_ENERGY_HISTORY_ADDRESSES, BSB_ENTITY_ADDRESSES
+from .const import BSB_ENERGY_HISTORY_ADDRESSES, BSB_ENTITY_ADDRESSES, SYSTEM_TYPE_GALEVO
 from .coordinator import ElcoDataUpdateCoordinator
-from .entity import ElcoAerotopEntity
+from .entity import ElcoAerotopEntity, async_setup_platform_entities
 from .models import (
     ElcoData,
     NumericVariable,
@@ -146,6 +146,99 @@ def _has_system_item(data: ElcoData, item_id: str, zone: int = 0) -> bool:
     )
 
 
+def _system_item_label(data: ElcoData, item_id: str, zone: int = 0) -> str | float | None:
+    """Return the localized enum label of a data item, else its raw value."""
+    item = data.discovery.system_item(item_id, zone)
+    if not item or item.get("error") is True or item.get("invalid") is True:
+        return None
+    value = _as_number(item.get("value"))
+    labels = item.get("optTexts")
+    options = item.get("options")
+    if value is not None and isinstance(labels, list) and isinstance(options, list):
+        for index, option in enumerate(options):
+            if index < len(labels) and _as_number(option) == value:
+                return str(labels[index])
+    return value
+
+
+# eWeather enum from the mobile app (data.local.models.eWeather): day values
+# 0-8 plus the +128 night variants; the Weather data item carries no optTexts.
+_GALEVO_WEATHER_LABELS = {
+    0: "Unavailable",
+    1: "Clear",
+    2: "Variable",
+    3: "Cloudy",
+    4: "Rainy",
+    5: "Rainstorm",
+    6: "Snow",
+    7: "Fog",
+    8: "Windy",
+    128: "Unavailable by night",
+    129: "Clear by night",
+    130: "Variable by night",
+    131: "Cloudy by night",
+    132: "Rainy by night",
+    133: "Rainstorm by night",
+    134: "Snow by night",
+    135: "Fog by night",
+    136: "Windy by night",
+    137: "Invalid",
+}
+
+
+def _galevo_weather_label(data: ElcoData) -> str | float | None:
+    """Return the eWeather condition name for the Weather item value."""
+    value = _system_item_label(data, "Weather")
+    if isinstance(value, str):
+        return value
+    if value is None:
+        return None
+    return _GALEVO_WEATHER_LABELS.get(int(value), value)
+
+
+def _energy_sequence(data: ElcoData, kind: int, period: int) -> list[float]:
+    """Return one consumption series' kWh buckets (oldest first)."""
+    for sequence in data.discovery.energy_sequences:
+        if sequence.get("k") == kind and sequence.get("p") == period:
+            values = sequence.get("v")
+            if isinstance(values, list):
+                return [float(v) for v in values if isinstance(v, int | float)]
+    return []
+
+
+def _last_complete_bucket(values: list[float]) -> float | None:
+    """Return the last completed month; the final bucket is still in progress.
+
+    Bucket order (oldest first) and the running last bucket are inferred
+    from the live capture — the two non-zero runs in the cooling series
+    line up with the last two cooling seasons.
+    """
+    return values[-2] if len(values) >= 2 else None
+
+
+def _annual_energy_value(data: ElcoData, kind: int) -> float | None:
+    """Sum the last 12 complete monthly buckets of a consumption series.
+
+    Galevo counterpart of the BSB ``annual energy input`` record fields:
+    ``consSequencesApi8`` period 4 returns monthly kWh buckets (oldest
+    first, last still running), so the rolling last 12 completed months
+    approximate the BSB yearly record. The ``Prod*`` usages needed for the
+    ``heat_delivered_*`` fields are rejected by the gateway (HTTP 500,
+    live probe 2026-11-19), so only the input side is matchable.
+    """
+    values = _energy_sequence(data, kind, 4)
+    if len(values) < 13:
+        return None
+    return sum(values[-13:-1])
+
+
+def _menu_item_value(data: ElcoData, item_id: str) -> float | None:
+    item = data.discovery.menu_items.get(item_id)
+    if not isinstance(item, dict) or item.get("error") is True:
+        return None
+    return _as_number(item.get("value"))
+
+
 def _bsb_available(data: ElcoData, address: str) -> bool:
     return bsb_point_available(data.discovery.bsb_points.get(address))
 
@@ -255,11 +348,21 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities,
 ) -> None:
-    coordinator: ElcoDataUpdateCoordinator = entry.runtime_data
+    async_setup_platform_entities(entry, async_add_entities, _create_entities)
+
+
+def _create_entities(
+    coordinator: ElcoDataUpdateCoordinator,
+    async_add_entities,
+) -> None:
     data = coordinator.data
     features = data.discovery.features
     entities: list[SensorEntity] = [ElcoLastSuccessfulUpdateSensor(coordinator)]
-    controller_timezone = dt_util.get_time_zone(hass.config.time_zone) or UTC
+    controller_timezone = dt_util.get_time_zone(coordinator.hass.config.time_zone) or UTC
+    # Entities backed by BSB data-point addresses (controller clock, heating-
+    # circuit parameters, heat-pump temperatures, energy history) have no
+    # equivalent on Galevo; register them only on BSB/unknown families.
+    bsb_family = data.discovery.system_type != SYSTEM_TYPE_GALEVO
 
     metadata_specs = (
         ("gateway_serial", "Gateway serial", "gwSerial"),
@@ -279,17 +382,18 @@ async def async_setup_entry(
             )
         )
 
-    entities.append(
-        ElcoSensor(
-            coordinator,
-            "controller_clock",
-            "Controller clock",
-            lambda state: _controller_clock(state, controller_timezone),
-            timestamp_sensor=True,
-            entity_category=EntityCategory.DIAGNOSTIC,
-            available_fn=lambda state: _bsb_available(state, "327691"),
+    if bsb_family:
+        entities.append(
+            ElcoSensor(
+                coordinator,
+                "controller_clock",
+                "Controller clock",
+                lambda state: _controller_clock(state, controller_timezone),
+                timestamp_sensor=True,
+                entity_category=EntityCategory.DIAGNOSTIC,
+                available_fn=lambda state: _bsb_available(state, "327691"),
+            )
         )
-    )
 
     header_sensor_specs = (
         (
@@ -402,10 +506,7 @@ async def async_setup_entry(
         ),
     )
     for item_id, key, name, is_pressure in system_sensor_specs:
-        if _has_system_item(data, item_id) or item_id in {
-            "ChFlowTemp",
-            "ChFlowSetpointTemp",
-        }:
+        if _has_system_item(data, item_id):
             entities.append(
                 ElcoSensor(
                     coordinator,
@@ -414,6 +515,189 @@ async def async_setup_entry(
                     lambda state, source=item_id: _as_number(state.discovery.system_value(source)),
                     temperature=not is_pressure,
                     pressure=is_pressure,
+                )
+            )
+
+    if _has_system_item(data, "Weather"):
+        entities.append(
+            ElcoSensor(
+                coordinator,
+                "weather",
+                "Weather",
+                _galevo_weather_label,
+                entity_category=EntityCategory.DIAGNOSTIC,
+            )
+        )
+
+    for item_id, key, name, entity_category, enabled_default in (
+        (
+            "BufferControlMode",
+            "buffer_control_mode",
+            "Buffer control mode",
+            EntityCategory.DIAGNOSTIC,
+            False,
+        ),
+    ):
+        if not _has_system_item(data, item_id):
+            continue
+        entities.append(
+            ElcoSensor(
+                coordinator,
+                key,
+                name,
+                lambda state, source=item_id: _system_item_label(state, source),
+                entity_category=entity_category,
+                enabled_default=enabled_default,
+            )
+        )
+
+    for item_id, key, name in (
+        (
+            "BufferTimeProgComfortHeatingTemp",
+            "buffer_comfort_heating_temperature",
+            "Buffer comfort heating temperature",
+        ),
+        (
+            "BufferTimeProgEconomyHeatingTemp",
+            "buffer_economy_heating_temperature",
+            "Buffer economy heating temperature",
+        ),
+        (
+            "BufferTimeProgComfortCoolingTemp",
+            "buffer_comfort_cooling_temperature",
+            "Buffer comfort cooling temperature",
+        ),
+        (
+            "BufferTimeProgEconomyCoolingTemp",
+            "buffer_economy_cooling_temperature",
+            "Buffer economy cooling temperature",
+        ),
+    ):
+        if not _has_system_item(data, item_id):
+            continue
+        entities.append(
+            ElcoSensor(
+                coordinator,
+                key,
+                name,
+                lambda state, source=item_id: _as_number(state.discovery.system_value(source)),
+                temperature=True,
+                entity_category=EntityCategory.DIAGNOSTIC,
+                enabled_default=False,
+            )
+        )
+
+    # Bus-device inventory (Galevo remote/plants/{gw}/busDevices) arrives via
+    # deferred discovery; availability follows the item list.
+    if data.discovery.probe_status.get("bus_devices") not in (
+        "unsupported:bsb_system",
+        "unsupported:system_family",
+    ):
+        entities.append(
+            ElcoSensor(
+                coordinator,
+                "bus_devices",
+                "Bus devices",
+                lambda state: (
+                    ", ".join(
+                        str(device.get("name"))
+                        for device in state.discovery.bus_devices
+                        if device.get("name")
+                    )
+                    or None
+                ),
+                entity_category=EntityCategory.DIAGNOSTIC,
+                available_fn=lambda state: bool(state.discovery.bus_devices),
+            )
+        )
+
+    # Galevo consumption series (reports/consSequencesApi8) arrive via
+    # deferred discovery; registration follows the probe status, values the
+    # sequence list.
+    if data.discovery.probe_status.get("energy_sequences") not in (
+        "unsupported:bsb_system",
+        "unsupported:system_family",
+    ):
+        for kind, slug, name in (
+            (1, "heating", "Heating"),
+            (2, "dhw", "Domestic hot water"),
+            (3, "cooling", "Cooling"),
+        ):
+            entities.extend(
+                ElcoSensor(
+                    coordinator,
+                    f"energy_{slug}_{suffix}",
+                    f"{name} energy {label}",
+                    lambda state, kind=kind, period=period, select=select: select(
+                        _energy_sequence(state, kind, period)
+                    ),
+                    energy=True,
+                    available_fn=lambda state, kind=kind, period=period: bool(
+                        _energy_sequence(state, kind, period)
+                    ),
+                )
+                for suffix, label, period, select in (
+                    ("last_24_hours", "last 24 hours", 1, lambda v: sum(v)),
+                    ("last_7_days", "last 7 days", 2, lambda v: sum(v)),
+                    ("last_month", "last month", 4, _last_complete_bucket),
+                )
+            )
+
+        # Reuse the BSB-shaped annual energy-input entities for Galevo:
+        # the consumption series provide the same "energy brought in"
+        # semantics. Entity keys match the existing registry unique_ids so
+        # pre-Galevo entries come back to life instead of duplicating.
+        for key, name, kind in (
+            (
+                "annual_energy_input_heating_1",
+                "Annual energy record 1 – Energy brought in heating",
+                1,
+            ),
+            (
+                "annual_energy_input_dhw_1",
+                "Annual energy record 1 – Energy brought in DHW",
+                2,
+            ),
+            (
+                "annual_energy_input_cooling_1",
+                "Annual energy record 1 – Energy brought in cooling",
+                3,
+            ),
+        ):
+            entities.append(
+                ElcoSensor(
+                    coordinator,
+                    key,
+                    name,
+                    lambda state, usage=kind: _annual_energy_value(state, usage),
+                    energy=True,
+                    entity_category=EntityCategory.DIAGNOSTIC,
+                    available_fn=lambda state, usage=kind: (
+                        _annual_energy_value(state, usage) is not None
+                    ),
+                )
+            )
+
+    # Galevo menu items arrive via deferred discovery; keep the entities
+    # registered and let item presence drive their availability.
+    if data.discovery.probe_status.get("menu_items") != "unsupported:bsb_system":
+        for item_id, key, name, is_temperature, enabled_default in (
+            ("119", "gateway_signal_level", "Gateway signal level", False, True),
+            ("130", "online_outdoor_temperature", "On-line outdoor temperature", True, False),
+        ):
+            entities.append(
+                ElcoSensor(
+                    coordinator,
+                    key,
+                    name,
+                    lambda state, source=item_id: _menu_item_value(state, source),
+                    temperature=is_temperature,
+                    measurement=not is_temperature,
+                    entity_category=EntityCategory.DIAGNOSTIC,
+                    available_fn=lambda state, source=item_id: (
+                        _menu_item_value(state, source) is not None
+                    ),
+                    enabled_default=enabled_default,
                 )
             )
 
@@ -437,6 +721,18 @@ async def async_setup_entry(
                     f"Zone {zone_number} room temperature",
                     lambda state, zone_id=zone_number: state.zones[zone_id].room_temperature,
                     temperature=True,
+                )
+            )
+        if _has_system_item(data, "ZoneName", zone_number):
+            entities.append(
+                ElcoSensor(
+                    coordinator,
+                    f"zone_{zone_number}_name",
+                    f"Zone {zone_number} name",
+                    lambda state, zone_id=zone_number: _system_item_label(
+                        state, "ZoneName", zone_id
+                    ),
+                    entity_category=EntityCategory.DIAGNOSTIC,
                 )
             )
         if zone.mode.value is not None:
@@ -580,6 +876,7 @@ async def async_setup_entry(
                 )
             )
 
+    # --- BSB-only entities (data-point addresses; no Galevo equivalent) ---
     bsb_specs = (
         (
             BSB_ENTITY_ADDRESSES["700"],
@@ -618,7 +915,7 @@ async def async_setup_entry(
             True,
         ),
     )
-    for address, key, name, temperature in bsb_specs:
+    for address, key, name, temperature in bsb_specs if bsb_family else ():
         if address not in data.discovery.bsb_points and not data.zones:
             continue
         entities.append(
@@ -646,6 +943,8 @@ async def async_setup_entry(
             ("code_2", "Maintenance code 2"),
             ("priority_2", "Maintenance priority 2"),
         )
+        if bsb_family
+        else ()
     ):
         entities.append(
             ElcoSensor(
@@ -662,7 +961,7 @@ async def async_setup_entry(
 
     if not _has_system_item(data, "HeatingCircuitPressure"):
         pressure_address = BSB_ENTITY_ADDRESSES["heating_circuit_pressure"]
-        if data.zones:
+        if bsb_family and data.zones:
             entities.append(
                 ElcoSensor(
                     coordinator,
@@ -680,42 +979,46 @@ async def async_setup_entry(
 
     for source, key, name, diagnostic in (
         (
-            "heat_pump_flow_temperature",
-            "heat_pump_flow_temperature",
-            "Heat pump flow temperature",
-            False,
-        ),
-        (
-            "heat_pump_return_temperature",
-            "heat_pump_return_temperature",
-            "Heat pump return temperature",
-            False,
-        ),
-        (
-            "heat_pump_flow_setpoint",
-            "heat_pump_flow_setpoint",
-            "Heat pump flow setpoint",
-            False,
-        ),
-        (
-            "heat_pump_gas_temperature",
-            "heat_pump_gas_temperature",
-            "Heat pump gas temperature",
-            True,
-        ),
-        (
-            "source_outlet_temperature",
-            "source_outlet_temperature",
-            "Source outlet temperature",
-            True,
-        ),
-        (
-            "source_outlet_temperature_minimum",
-            "source_outlet_temperature_minimum",
-            "Source outlet temperature minimum",
-            True,
-        ),
-        ("hot_gas_temperature", "hot_gas_temperature", "Hot gas temperature", True),
+            (
+                "heat_pump_flow_temperature",
+                "heat_pump_flow_temperature",
+                "Heat pump flow temperature",
+                False,
+            ),
+            (
+                "heat_pump_return_temperature",
+                "heat_pump_return_temperature",
+                "Heat pump return temperature",
+                False,
+            ),
+            (
+                "heat_pump_flow_setpoint",
+                "heat_pump_flow_setpoint",
+                "Heat pump flow setpoint",
+                False,
+            ),
+            (
+                "heat_pump_gas_temperature",
+                "heat_pump_gas_temperature",
+                "Heat pump gas temperature",
+                True,
+            ),
+            (
+                "source_outlet_temperature",
+                "source_outlet_temperature",
+                "Source outlet temperature",
+                True,
+            ),
+            (
+                "source_outlet_temperature_minimum",
+                "source_outlet_temperature_minimum",
+                "Source outlet temperature minimum",
+                True,
+            ),
+            ("hot_gas_temperature", "hot_gas_temperature", "Hot gas temperature", True),
+        )
+        if bsb_family
+        else ()
     ):
         address = BSB_ENTITY_ADDRESSES[source]
         if address not in data.discovery.bsb_points and not features.get("hpSys", False):
@@ -733,7 +1036,7 @@ async def async_setup_entry(
             )
         )
 
-    if any(supports_cooling(features, zone) for zone in data.zones.values()):
+    if bsb_family and any(supports_cooling(features, zone) for zone in data.zones.values()):
         for source, key, name in (
             (
                 "cooling_2_flow_temperature",
@@ -770,7 +1073,7 @@ async def async_setup_entry(
         ("energy_input_dhw", "Energy brought in DHW"),
         ("energy_input_cooling", "Energy brought in cooling"),
     )
-    for slot, addresses in BSB_ENERGY_HISTORY_ADDRESSES.items():
+    for slot, addresses in BSB_ENERGY_HISTORY_ADDRESSES.items() if bsb_family else ():
         record_name = f"Annual energy record {slot}"
         date_address = addresses["record_date"]
         entities.append(
@@ -830,7 +1133,7 @@ async def async_setup_entry(
         ("combustion", "combustion", "Combustion health"),
         ("other", "other", "Other appliance health"),
     )
-    for field, key_suffix, name in monitoring_specs:
+    for field, key_suffix, name in monitoring_specs if bsb_family else ():
         entities.append(
             ElcoSensor(
                 coordinator,
@@ -847,17 +1150,20 @@ async def async_setup_entry(
             )
         )
 
-    entities.append(
-        ElcoSensor(
-            coordinator,
-            "predictive_maintenance_count",
-            "Predictive maintenance notice count",
-            lambda state: (
-                len(notices) if (notices := _predictive_maintenances(state)) is not None else None
-            ),
-            entity_category=EntityCategory.DIAGNOSTIC,
-            measurement=True,
-            available_fn=lambda state: _predictive_maintenances(state) is not None,
+    if bsb_family:
+        entities.append(
+            ElcoSensor(
+                coordinator,
+                "predictive_maintenance_count",
+                "Predictive maintenance notice count",
+                lambda state: (
+                    len(notices)
+                    if (notices := _predictive_maintenances(state)) is not None
+                    else None
+                ),
+                entity_category=EntityCategory.DIAGNOSTIC,
+                measurement=True,
+                available_fn=lambda state: _predictive_maintenances(state) is not None,
+            )
         )
-    )
     async_add_entities(entities)
