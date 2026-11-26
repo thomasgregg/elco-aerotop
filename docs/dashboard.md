@@ -56,9 +56,10 @@ sensor and reduced-temperature control.
 | `sensor.elco_example_last_successful_update` | Last successful update |
 | `button.elco_example_refresh` | Refresh |
 
-Home Assistant may generate different entity IDs from the original language or device name,
-and an ID can also be customized. Copy the actual ID from the entity settings. The
-[entity reference](entities.md) lists the English names and the conditions for each entity.
+The example suffixes use the language-independent defaults for new entities. Home Assistant
+adds a prefix based on the device name. Existing installations can have localized or customized
+IDs, so copy the actual ID from the entity settings. The [entity reference](entities.md) lists
+the English names and the conditions for each entity.
 On a cooling-capable system the request flag may cover both heating and cooling. The
 thermostat's activity shows the current action when the controller provides it.
 
@@ -91,8 +92,8 @@ The heating and hot-water totals in the example are for a rolling window of
           - type: entities
             entities:
               - entity: select.elco_example_plant_mode
-              - entity: sensor.elco_example_heating_energy_last_12_complete_months
-              - entity: sensor.elco_example_domestic_hot_water_energy_last_12_complete_months
+              - entity: sensor.elco_example_energy_heating_last_12_complete_months
+              - entity: sensor.elco_example_energy_dhw_last_12_complete_months
           - type: tile
             name: Estimated SPF · previous calendar year
             entity: sensor.elco_example_estimated_spf_previous_calendar_year
@@ -117,7 +118,7 @@ Slot 1 is the newest record.
               - entity: sensor.elco_example_maintenance_code_2
               - entity: sensor.elco_example_maintenance_priority_1
               - entity: sensor.elco_example_maintenance_priority_2
-              - entity: sensor.elco_example_annual_energy_record_1_yearly_performance_factor
+              - entity: sensor.elco_example_annual_performance_factor_1
 ```
 
 For holiday controls and the BSB calendar, see the [holiday dashboard examples](holidays.md).

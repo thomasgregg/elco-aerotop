@@ -7,6 +7,8 @@ All notable changes to ELCO Aerotop for Home Assistant are documented here.
 - Add read-only operating mode, electric backup heater status, heat pump flow temperature,
   outside air temperature, and a heating circuit flow temperature fallback for Galevo plants
   with an EM20 energy manager. Thanks to @lodzen for contributing the EM20 readings.
+- Generate language-independent default entity IDs on BSB and Galevo. Keep localized
+  display names and preserve registered IDs, custom names, and enabled settings.
 
 ## 0.4.3
 

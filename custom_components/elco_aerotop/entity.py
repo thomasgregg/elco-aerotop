@@ -15,6 +15,13 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN, SYSTEM_TYPE_GALEVO
 from .coordinator import ElcoDataUpdateCoordinator
 
+_DEFAULT_OBJECT_ID_OVERRIDES = {
+    "dhw_current_temperature": "domestic_hot_water_temperature",
+    "dhw_operation": "domestic_hot_water_operation",
+    "dhw_target_temperature": "domestic_hot_water_target_temperature",
+    "galevo_estimated_jaz": "estimated_spf_previous_calendar_year",
+}
+
 
 def async_setup_platform_entities(
     entry: ConfigEntry,
@@ -63,6 +70,11 @@ class ElcoAerotopEntity(CoordinatorEntity[ElcoDataUpdateCoordinator]):
             self.coordinator.data.unavailable_zones
         )
 
+    @property
+    def suggested_object_id(self) -> str:
+        """Suggest a language-independent suffix for Home Assistant's entity ID."""
+        return self._elco_object_id
+
     def has_registry_entry(self, entity_domain: str) -> bool:
         """Return whether this entity already has a persistent Home Assistant ID."""
         registry = er.async_get(self.coordinator.hass)
@@ -87,6 +99,7 @@ class ElcoAerotopEntity(CoordinatorEntity[ElcoDataUpdateCoordinator]):
         if translation_placeholders is not None:
             self._attr_translation_placeholders = translation_placeholders
         self._attr_unique_id = f"{coordinator.api.gateway_id}_{key}"
+        self._elco_object_id = _DEFAULT_OBJECT_ID_OVERRIDES.get(key, key)
         metadata = coordinator.data.discovery.plant_metadata
         header = coordinator.data.discovery.plant_header
         self._attr_device_info = DeviceInfo(

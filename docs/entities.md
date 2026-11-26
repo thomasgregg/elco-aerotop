@@ -352,7 +352,7 @@ Remocon can also provide these optional readings.
 
 | Entity | Typical entity ID | Created when |
 |---|---|---|
-| On-line outdoor temperature | `sensor.<device>_on_line_outdoor_temperature` | Galevo returns mobile menu item 130 |
+| On-line outdoor temperature | `sensor.<device>_online_outdoor_temperature` | Galevo returns mobile menu item 130 |
 | Buffer control mode | `sensor.<device>_buffer_control_mode` | Remocon returns `BufferControlMode` |
 | Buffer comfort and economy temperatures | `sensor.<device>_buffer_<level>_<season>_temperature` | Remocon returns the heating or cooling buffer setpoint |
 
@@ -550,11 +550,15 @@ addresses can block or time out a gateway.
 
 ## Display names and entity IDs
 
-Home Assistant uses the configured language for the integration's translated display names.
-An existing entity ID is retained when display names change, including a switch between
-English and German. Automations and dashboards referencing those IDs keep working. Home
-Assistant preserves custom names and enabled/disabled choices. For an entity created for the
-first time, the generated ID can reflect the active language and device name.
+Home Assistant uses the configured language for display names. When ELCO first registers a
+sensor, the same device and reading get the same default ID suffix in English and German.
+For example, **Outside temperature** and **Außentemperatur** both use
+`sensor.<device>_outside_temperature`.
+
+Home Assistant preserves existing IDs, including ones it previously created in a different
+language and ones you renamed. Automations and dashboards continue to use those IDs after
+an upgrade or language change. Custom display names and enabled or disabled settings are
+preserved too. For an existing entity, copy its actual ID from the entity settings.
 
 ## Enabling and disabling entities
 

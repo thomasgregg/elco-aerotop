@@ -100,9 +100,9 @@ fault information. You can enable optional diagnostics in the device's entity se
 
 The [entity reference](docs/entities.md) contains the complete tables, entity-ID patterns, default
 states, creation conditions, read/write behavior, and explanations of maintenance, holiday, and
-energy values—including which entities exist for each controller family. Existing entity IDs and
-enabled/disabled choices are preserved during upgrades; new defaults apply only when an entity is
-first registered.
+energy values, including which entities exist for each controller family. New entities get
+language-independent default IDs and localized display names. Upgrades preserve registered IDs
+and enabled or disabled settings.
 
 ## Dashboard example
 
