@@ -247,16 +247,6 @@ def _energy_sequence(data: ElcoData, kind: int, period: int) -> list[float | Non
     return []
 
 
-def _last_complete_bucket(values: list[float | None]) -> float | None:
-    """Return the last completed month; the final bucket is still in progress.
-
-    Bucket order (oldest first) and the running last bucket are inferred
-    from the live capture — the two non-zero runs in the cooling series
-    line up with the last two cooling seasons.
-    """
-    return values[-2] if len(values) >= 2 else None
-
-
 def _energy_sum(values: list[float | None], bucket_count: int) -> float | None:
     present = [value for value in values if value is not None]
     if len(values) != bucket_count or len(present) != bucket_count:
@@ -266,10 +256,11 @@ def _energy_sum(values: list[float | None], bucket_count: int) -> float | None:
 
 def _energy_value(data: ElcoData, kind: int, period: int, window: str) -> float | None:
     values = _energy_sequence(data, kind, period)
+    # The monthly report ends with the latest completed month.
     if window == "last_month":
-        return _last_complete_bucket(values)
+        return values[-1] if values else None
     if window == "last_12_complete_months":
-        return _energy_sum(values[-13:-1], 12)
+        return _energy_sum(values[-12:], 12)
     return _energy_sum(values, 24 if period == 1 else 7)
 
 

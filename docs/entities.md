@@ -403,8 +403,11 @@ suppress unrelated data.
 
 Galevo publishes separate energy sensors for heating, domestic hot water, and cooling
 when the service returns the corresponding series. The periods are the last 24 hours,
-last 7 days, last complete month, and last 12 complete months. Missing buckets leave the
-affected period unavailable. Each value is a windowed consumption reading in kWh.
+last 7 days, last complete month, and last 12 complete months. The monthly series ends at
+the previous calendar month. The integration uses its latest entry for the one-month
+sensor and sums its latest 12 entries for the 12-month sensor. A reported zero is a valid
+reading. Missing buckets leave the affected period unavailable. Each value is a
+windowed consumption reading in kWh.
 
 ### Galevo estimated seasonal performance factor (SPF)
 

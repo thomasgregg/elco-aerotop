@@ -1051,8 +1051,8 @@ class ElcoApiClient:
         Verified live: ``?usages=Ch,Dhw,Cooling&hasSlp=false`` returns
         ``[{k, p, v}]`` where ``k`` is the eEnergyUsageDto value (1=heating,
         2=DHW, 3=cooling; the gateway may add aggregate kinds like
-        24=ChHpResAggr), ``p`` the eSequencePeriod (1=24h, 2=7d, 3=30d,
-        4=12 months) and ``v`` the kWh buckets, oldest first.
+        24=ChHpResAggr), ``p`` the eSequencePeriod (1=24h, 2=7d, 3=daily,
+        4=completed months) and ``v`` the kWh buckets, oldest first.
         """
         payload = await self._request_mobile_payload(
             GALEVO_CONS_SEQUENCES_PATH.format(gateway_id=self.gateway_id),

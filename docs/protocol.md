@@ -236,12 +236,13 @@ The R2 UI reaches several routes the app never calls (evidence: user-provided HA
 - `GET /api/v2/remote/reports/{gw}/consSequencesApi8?usages=Ch,Dhw,Cooling&hasSlp=false`
   → consumption time series `[{k, p, v}]`: `k` = `eEnergyUsageDto` value (1=heating, 2=DHW,
   3=cooling; the gateway also returns aggregates like 24=`ChHpResAggr`, 25=`DhwHpResAggr`),
-  `p` = `eSequencePeriod` (1=last 24 h hourly, 2=last 7 days, 3=last 30 days, 4=last
-  12+ months), `v` = kWh buckets, oldest first, the last bucket is the in-progress
-  period (inferred: the two non-zero runs in the cooling series line up with the two
-  most recent cooling seasons). Verified live 2026-11-19 on a Galevo gateway
-  (heating ≈2772 kWh / 22 months, DHW ≈2355 kWh). Requesting detail usages the plant
-  does not track → HTTP 500 (live probe 2026-11-19: `ProdChHeatingPump`,
+  `p` = `eSequencePeriod` (1=last 24 h hourly, 2=last 7 days, 3=daily history,
+  4=completed calendar months), `v` = kWh buckets, oldest first. The final monthly
+  bucket matched the web portal's previous calendar month in the Galevo capture from
+  November 2026. The daily series covered 56 days in that capture. The integration
+  uses the final monthly bucket for the last complete month and the final 12 buckets
+  for the last 12 complete months. [Galevo diagnostics](https://github.com/thomasgregg/elco-aerotop/issues/1#issuecomment-7191652268)
+  Requesting detail usages the plant does not track → HTTP 500 (live probe 2026-11-19: `ProdChHeatingPump`,
   `ProdDhwHeatingPump`, `ProdCoolHeatingPump` all rejected), so the catalog is
   kept at the base trio.
 - `Weather` data item: value maps to APK `eWeather` — `0=Unavailable, 1=Clear,

@@ -30,6 +30,7 @@ from custom_components.elco_aerotop.models import (
     GALEVO_ZONE_MODE_TO_RAW,
     ElcoData,
     PlantState,
+    ReadOnlyDiscovery,
     ZoneState,
 )
 from custom_components.elco_aerotop.sensor import _energy_value
@@ -42,8 +43,8 @@ def galevo_fixture(hass, monkeypatch):
     api.async_get_galevo_time_prog.return_value = {}
     api.async_get_galevo_bus_devices.return_value = [{"name": "Modem", "sn": "SYNTHETIC-MODEM-ID"}]
     api.async_get_galevo_consumption_sequences.return_value = [
-        {"k": 1, "p": 4, "v": [1] * 12 + [99]},
-        {"k": 2, "p": 4, "v": [2] * 11 + [None, 99]},
+        {"k": 1, "p": 4, "v": [1] * 12},
+        {"k": 2, "p": 4, "v": [2] * 11 + [None]},
     ]
     api.async_get_menu_items.return_value = {"119": {"value": 4}}
     items = {}
@@ -465,6 +466,84 @@ async def test_late_capability_energy_and_privacy(hass, galevo_fixture):
     select_id = registry.async_get_entity_id("select", DOMAIN, f"{GATEWAY_ID}_plant_mode")
     assert hass.states.get(select_id).state == "Winter"
     api.async_set_galevo_holiday.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("months", "last_month", "last_year"),
+    [
+        pytest.param([], None, None, id="no-history"),
+        pytest.param("invalid", None, None, id="malformed-series"),
+        pytest.param([8.25], 8.25, None, id="first-completed-month"),
+        pytest.param([1] * 11, 1, None, id="fewer-than-twelve-months"),
+        pytest.param([1] * 11 + [2.5], 2.5, 13.5, id="exactly-twelve-months"),
+        pytest.param([200] + [1] * 11 + [2.5], 2.5, 13.5, id="exclude-older-months"),
+        pytest.param([None] + [1] * 11 + [2.5], 2.5, 13.5, id="ignore-older-gap"),
+        pytest.param([1] * 11 + [0], 0, 11, id="zero-latest-month"),
+        pytest.param([0] * 12, 0, 0, id="zero-throughout"),
+        pytest.param([1] * 11 + [None], None, None, id="missing-latest-month"),
+        pytest.param([None] + [1] * 11, 1, None, id="gap-within-year"),
+        pytest.param([1] * 11 + [False], None, None, id="boolean-latest-month"),
+        pytest.param([1] * 11 + ["2.5"], None, None, id="string-latest-month"),
+        pytest.param([1] * 11 + [float("nan")], None, None, id="nan-latest-month"),
+        pytest.param([1] * 11 + [float("inf")], None, None, id="infinite-latest-month"),
+    ],
+)
+def test_galevo_completed_month_windows(months, last_month, last_year):
+    data = ElcoData(
+        GATEWAY_ID,
+        PlantState.from_galevo({}),
+        discovery=ReadOnlyDiscovery(energy_sequences=[{"k": 1, "p": 4, "v": months}]),
+    )
+    assert _energy_value(data, 1, 4, "last_month") == last_month
+    assert _energy_value(data, 1, 4, "last_12_complete_months") == last_year
+
+
+async def test_galevo_monthly_entities_publish_latest_completed_month(hass, galevo_fixture):
+    api, entry, _ = galevo_fixture
+    # Issue #1 had 22 monthly buckets. The newest was the first nonzero heating
+    # month, hot water had a different previous total, and cooling ended at zero.
+    # Use synthetic readings with the same layout.
+    reports = [
+        {"k": 1, "p": 4, "v": [0] * 21 + [37.125]},
+        {"k": 2, "p": 4, "v": [0] * 18 + [1.25, 70.5, 78.875, 105.625]},
+        {"k": 3, "p": 4, "v": [0] * 19 + [40.5, 19.75, 0]},
+        {"k": 1, "p": 1, "v": [0.5] * 24},
+        {"k": 1, "p": 2, "v": [2] * 7},
+    ]
+    api.async_get_galevo_consumption_sequences.return_value = reports
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    registry = er.async_get(hass)
+
+    def entity_id(key):
+        return registry.async_get_entity_id("sensor", DOMAIN, f"{GATEWAY_ID}_energy_{key}")
+
+    expected = {
+        "heating_last_month": 37.125,
+        "heating_last_12_complete_months": 37.125,
+        "dhw_last_month": 105.625,
+        "dhw_last_12_complete_months": 256.25,
+        "cooling_last_month": 0,
+        "cooling_last_12_complete_months": 60.25,
+        "heating_last_24_hours": 12,
+        "heating_last_7_days": 14,
+    }
+    ids = {key: entity_id(key) for key in expected}
+    for key, value in expected.items():
+        assert float(hass.states.get(ids[key]).state) == pytest.approx(value)
+
+    # A new completed month refreshes both windows under the same registry IDs.
+    api.async_get_galevo_consumption_sequences.return_value = [
+        {**reports[0], "v": reports[0]["v"] + [22.5]},
+        *reports[1:],
+    ]
+    await entry.runtime_data.async_refresh_deferred_discovery()
+    await hass.async_block_till_done()
+    assert {key: entity_id(key) for key in expected} == ids
+    assert float(hass.states.get(ids["heating_last_month"]).state) == pytest.approx(22.5)
+    assert float(hass.states.get(ids["heating_last_12_complete_months"]).state) == pytest.approx(
+        59.625
+    )
 
 
 @pytest.mark.parametrize("error", [None, ElcoResponseError("Rejected")])

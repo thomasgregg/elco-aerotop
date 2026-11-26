@@ -2,6 +2,11 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.4.3
+
+- Fix Galevo electricity consumption for the last complete month and last 12 complete months.
+  Both windows now include the latest completed month returned by Remocon.
+
 ## 0.4.2
 
 - Use **Estimated SPF – previous calendar year** for the English Galevo sensor name.
