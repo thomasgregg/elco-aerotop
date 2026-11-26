@@ -20,6 +20,13 @@ paths and value types in `response_schema`.
 | Energy | Cloud metering and ten fixed annual records when returned | Heating, hot-water, and cooling consumption series, plus the previous-year estimate from supported web metering |
 | Extra datapoints | Isolated, allowlisted groups for heating-circuit settings, line 7000 messages, and heat-pump data | Returned mobile fields and feature-selected menu items |
 
+Galevo plants with `data.discovery.features.hasEm20: true` also read a five-item status
+batch after regular core polling. Returned items appear in `data.discovery.menu_items`
+alongside the slower settings catalog. Check keys `337`, `340`, `341`, `348`, and `349`.
+A missing key means the item was omitted or the status read did not complete. A returned
+item can still be marked unavailable or hold a value the integration cannot use.
+See the [EM20 protocol notes](protocol.md#optional-read-only-discovery).
+
 Slow controller-backed families run after the first valid core snapshot, including after
 recovery from a failed first poll. A pending entry can export redacted diagnostics.
 Optional reads use `deferred:background` until a result is available.

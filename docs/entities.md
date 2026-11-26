@@ -21,6 +21,7 @@ Home Assistant device, with entities selected from its reported capabilities.
 - **Galevo** adds plant mode, season-specific temperature and flow controls, quiet mode, hot-water
   boost, automatic thermoregulation, plant-wide holiday dates and switch, and consumption reports.
   Dedicated sensors show plant mode, hot-water operation, and the stored hot-water target.
+  With an EM20 energy manager, Galevo also reports [heat-pump status](#galevo-heat-pump-status-with-em20).
 
 ## Reading the tables
 
@@ -44,6 +45,10 @@ A BSB installation passed an upgrade check from `v0.3.17`. Recorded Galevo hardw
 plant mode, scheduled hot-water comfort, the active heating thermostat, and entity availability
 after upgrading. The gateway's firmware and installed options determine which other controls
 are available. [Galevo hardware retest](https://github.com/thomasgregg/elco-aerotop/issues/3#issuecomment-7095033094)
+
+The EM20 contributor reported readings from one Galevo gateway. v0.4.4 adds automated
+Home Assistant tests for optional reads, rate limiting, and source switching. Field feedback on
+the released implementation is welcome in the [EM20 PR thread](https://github.com/thomasgregg/elco-aerotop/pull/5).
 
 Testing is especially useful for:
 
@@ -157,16 +162,16 @@ keep their entity IDs and enabled settings.
 
 | Entity | Typical entity ID | Default | Created when | Access |
 |---|---|:---:|---|---|
-| DHW comfort temperature | `number.<device>_domestic_hot_water_comfort_temperature` | Existing registry setting | This number already exists and a comfort value is returned | Read/write |
-| DHW reduced temperature | `number.<device>_domestic_hot_water_reduced_temperature` | Enabled | A reduced value is returned | Read/write |
+| DHW comfort temperature | `number.<device>_dhw_comfort_temperature` | Existing registry setting | This number already exists and a comfort value is returned | Read/write |
+| DHW reduced temperature | `number.<device>_dhw_reduced_temperature` | Enabled | A reduced value is returned | Read/write |
 | Zone `<zone>` comfort temperature | `number.<device>_zone_<zone>_comfort_temperature` | Existing registry setting | This number already exists and a heating comfort value is returned | Write during heating |
 | Zone `<zone>` reduced temperature | `number.<device>_zone_<zone>_reduced_temperature` | Enabled | A reduced value is returned | Write during heating |
 | Zone `<zone>` cooling comfort temperature | `number.<device>_zone_<zone>_cooling_comfort_temperature` | Existing registry setting | This number already exists and a cooling comfort value is returned | Write during cooling |
 | Zone `<zone>` cooling reduced temperature | `number.<device>_zone_<zone>_cooling_reduced_temperature` | Enabled | Cooling capability and a reduced value are returned | Write during cooling |
-| DHW mode | `select.<device>_domestic_hot_water_mode` | Enabled when first added for an extra mode | The gateway offers a mode without a native mapping, or this select already exists | Read/write |
+| DHW mode | `select.<device>_dhw_mode` | Enabled when first added for an extra mode | The gateway offers a mode without a native mapping, or this select already exists | Read/write |
 | Zone `<zone>` mode | `select.<device>_zone_<zone>_mode` | Enabled when first added for an extra mode | The gateway offers a mode without a native mapping, or this select already exists | Read/write |
 | Plant mode | `select.<device>_plant_mode` | Enabled | Galevo advertises a valid writable `PlantMode` item with options | Mobile `plantData/{gw}/mode` with fresh state and readback |
-| Scheduled hot water comfort temperature | `number.<device>_scheduled_hot_water_comfort_temperature` | Existing registry setting | This number already exists. Available in Time Based mode with a writable, bounded comfort value and an economy value | Typed input, verified by reading back both scheduled setpoints |
+| Scheduled hot water comfort temperature | `number.<device>_dhw_scheduled_comfort_temperature` | Existing registry setting | This number already exists. Available in Time Based mode with a writable, bounded comfort value and an economy value | Typed input, verified by reading back both scheduled setpoints |
 | Zone heating and cooling flow temperatures | `number.<device>_zone_<zone>_<season>_flow_temperature` | Enabled | Galevo returns the available flow item and permits writing | Typed input |
 | Zone heating and cooling flow offsets | `number.<device>_zone_<zone>_<season>_flow_offset` | Enabled | Galevo returns the available offset and permits writing | Slider |
 | Quiet mode, hot-water boost, automatic thermoregulation | `switch.<device>_quiet_mode`, `switch.<device>_domestic_hot_water_boost`, `switch.<device>_automatic_thermoregulation` | Enabled | Galevo returns the corresponding writable item | Read/write |
@@ -212,19 +217,53 @@ These appear under Sensors and are enabled by default.
 | Domestic hot water target temperature | `sensor.<device>_domestic_hot_water_target_temperature` | °C | Galevo reports the target for the current mode |
 | Plant mode status | `sensor.<device>_plant_mode_status` | — | Galevo returns `PlantMode` |
 | Heating circuit pressure | `sensor.<device>_heating_circuit_pressure` | bar | System data or BSB pressure fallback is supported |
-| Heating circuit flow temperature | `sensor.<device>_heating_circuit_flow_temperature` | °C | System data is supported |
+| Heating circuit flow temperature | `sensor.<device>_heating_circuit_flow_temperature` | °C | System data or an EM20 fallback is available |
 | Heating circuit flow setpoint temperature | `sensor.<device>_heating_circuit_flow_setpoint_temperature` | °C | System data is supported |
 | Zone `<zone>` desired temperature | `sensor.<device>_zone_<zone>_desired_temperature` | °C | Effective zone request is returned |
 | Zone `<zone>` room temperature | `sensor.<device>_zone_<zone>_room_temperature` | °C | Zone advertises a room probe |
 | Zone `<zone>` heating flow temperature | `sensor.<device>_zone_<zone>_heating_flow_temperature` | °C | Zone system-data item is usable |
 | Zone `<zone>` cooling flow temperature | `sensor.<device>_zone_<zone>_cooling_flow_temperature` | °C | Zone system-data item is usable |
 | Zone `<zone>` derogation temperature | `sensor.<device>_zone_<zone>_derogation_temperature` | °C | Temporary zone override is returned |
-| Heat pump flow temperature | `sensor.<device>_heat_pump_flow_temperature` | °C | Heat-pump capability or BSB point exists |
+| Heat pump flow temperature | `sensor.<device>_heat_pump_flow_temperature` | °C | BSB heat-pump capability or datapoint exists, or Galevo returns the EM20 reading |
 | Heat pump return temperature | `sensor.<device>_heat_pump_return_temperature` | °C | Heat-pump capability or BSB point exists |
 | Heat pump flow setpoint | `sensor.<device>_heat_pump_flow_setpoint` | °C | Heat-pump capability or BSB point exists |
 
 Temperature and pressure entities use measurement state classes. A BSB communication or
 out-of-service flag makes only the affected entity unavailable.
+
+## Galevo heat-pump status with EM20
+
+Starting in [v0.4.4](https://github.com/thomasgregg/elco-aerotop/releases/tag/v0.4.4),
+Galevo plants that report an EM20 energy manager can show these read-only sensors. Look
+under **Sensors** on the ELCO device page. Each sensor is enabled by default when a usable
+reading first appears.
+
+| Sensor | Default entity ID for new entities | Reading |
+| --- | --- | --- |
+| Heat pump mode | `sensor.<device>_heat_pump_mode` | `off`, `standby`, `cooling`, `heating`, or `defrost` |
+| Heating circuit backup heater | `sensor.<device>_ch_backup_resistance` | `off` or `on` |
+| Heat pump flow temperature | `sensor.<device>_heat_pump_flow_temperature` | Measured water flow temperature at the heat pump, in °C |
+| Heat pump outside air temperature | `sensor.<device>_heat_pump_outside_air_temperature` | Outdoor temperature measured at the heat pump, in °C |
+| Heating circuit flow temperature | `sensor.<device>_heating_circuit_flow_temperature` | Measured heating circuit flow temperature, in °C. Uses the main `ChFlowTemp` reading when available and the EM20 value as a fallback. |
+
+The controller and the heat pump can report separate outdoor or flow temperatures. The
+heating-circuit flow sensor uses the same entity ID when its source changes. A missing
+EM20 reading leaves that sensor usable if `ChFlowTemp` is still valid.
+
+EM20 readings arrive after each regular core update. Missing, invalid, or unrecognized
+readings make the affected registered sensor unavailable until a usable reading returns.
+A failed EM20 request clears all five EM20 values. The rest of the core snapshot can
+still be used. If the service asks for a retry delay, the coordinator applies the gateway's
+normal backoff.
+
+Home Assistant translates the displayed mode, including **Defrost** or **Abtauen**.
+Use the raw state `defrost` in an automation. The state describes the last sample,
+and a full defrost cycle can occur between polls at the default one-hour interval.
+
+If the sensors never appear, check whether the gateway is Galevo and reports
+`hasEm20: true` in [redacted diagnostics](discovery.md#captured-data). The gateway may
+supply only some readings. Once the sensors appear, use their actual entity IDs in the
+[EM20 dashboard example](dashboard.md#add-galevo-em20-status).
 
 ## Operational binary sensors
 
@@ -233,7 +272,7 @@ out-of-service flag makes only the affected entity unavailable.
 | Heat pump running | `binary_sensor.<device>_heat_pump_running` | Enabled | Heat-pump capability or running value exists |
 | Flame on | `binary_sensor.<device>_flame_on` | Enabled | Boiler capability or flame state exists |
 | Zone `<zone>` heat request | `binary_sensor.<device>_zone_<zone>_heat_request` | Enabled | A zone request flag is returned |
-| Domestic hot water boost | `binary_sensor.<device>_domestic_hot_water_boost` | Enabled | Remocon returns `IsDhwBoost` |
+| Domestic hot water boost | `binary_sensor.<device>_dhw_boost` | Enabled | Remocon returns `IsDhwBoost` |
 
 On cooling-capable systems, heat request may represent a combined heating-or-cooling request. The
 thermostat activity is preferable when separate heating/cooling flags are returned.
@@ -319,20 +358,20 @@ current-holiday writes, and schedule discovery still need reports from populated
 | Quiet mode | `binary_sensor.<device>_quiet_mode` | Status | Remocon returns `IsQuite` |
 | Automatic thermoregulation | `binary_sensor.<device>_automatic_thermoregulation` | Status | Remocon returns `AutomaticThermoregulation` |
 | Holiday active | `binary_sensor.<device>_holiday_active` | Status | Remocon returns `Holiday` |
-| Backup resistor active | `binary_sensor.<device>_backup_resistor_active` | Status | Remocon returns `IsResistorOn` |
+| Backup resistor active | `binary_sensor.<device>_resistor_on` | Status | Remocon returns `IsResistorOn` |
 | Controller error count | `sensor.<device>_controller_error_count` | Fault | Error API returns a list |
 | Controller error | `binary_sensor.<device>_controller_error` | Problem | Error API returns a list; up to ten records are attributes |
 | Maintenance code 1/2 | `sensor.<device>_maintenance_code_<1-2>` | Maintenance | BSB 7000 response is usable |
 | Maintenance priority 1/2 | `sensor.<device>_maintenance_priority_<1-2>` | Maintenance | BSB 7000 response is usable |
-| Hydraulic pressure health | `sensor.<device>_hydraulic_pressure_health` | Health | Automated monitoring returns a level |
-| Refrigerant circuit health | `sensor.<device>_refrigerant_circuit_health` | Health | Automated monitoring returns a level |
-| Circulation health | `sensor.<device>_circulation_health` | Health | Automated monitoring returns a level |
-| Combustion health | `sensor.<device>_combustion_health` | Health | Automated monitoring returns a level |
-| Other appliance health | `sensor.<device>_other_appliance_health` | Health | Automated monitoring returns a level |
-| Predictive maintenance notice count | `sensor.<device>_predictive_maintenance_notice_count` | Maintenance | Structured notice collection is returned |
-| Outside probe problem | `binary_sensor.<device>_outside_temperature_sensor_problem` | Problem | Outdoor probe/error flag exists |
-| DHW probe problem | `binary_sensor.<device>_domestic_hot_water_temperature_sensor_problem` | Problem | DHW probe/error flag exists |
-| Zone `<zone>` room probe problem | `binary_sensor.<device>_zone_<zone>_room_temperature_sensor_problem` | Problem | Room probe and error flag exist |
+| Hydraulic pressure health | `sensor.<device>_automated_monitoring_hydraulic_pressure` | Health | Automated monitoring returns a level |
+| Refrigerant circuit health | `sensor.<device>_automated_monitoring_refrigerant_circuit` | Health | Automated monitoring returns a level |
+| Circulation health | `sensor.<device>_automated_monitoring_circulation` | Health | Automated monitoring returns a level |
+| Combustion health | `sensor.<device>_automated_monitoring_combustion` | Health | Automated monitoring returns a level |
+| Other appliance health | `sensor.<device>_automated_monitoring_other` | Health | Automated monitoring returns a level |
+| Predictive maintenance notice count | `sensor.<device>_predictive_maintenance_count` | Maintenance | Structured notice collection is returned |
+| Outside probe problem | `binary_sensor.<device>_outside_temperature_error` | Problem | Outdoor probe/error flag exists |
+| DHW probe problem | `binary_sensor.<device>_dhw_temperature_error` | Problem | DHW probe/error flag exists |
+| Zone `<zone>` room probe problem | `binary_sensor.<device>_zone_<zone>_room_temperature_error` | Problem | Room probe and error flag exist |
 
 BSB line 7000 can return two simultaneous maintenance messages, so code and priority have two
 entities each. Raw structured maintenance, monitoring, and notice payloads remain in redacted Home
@@ -361,15 +400,15 @@ Remocon can also provide these optional readings.
 | Owner phone | `sensor.<device>_owner_phone` | Plant-user API returns it |
 | Owner mobile phone | `sensor.<device>_owner_mobile_phone` | Plant-user API returns it |
 | Zone `<zone>` mode | `sensor.<device>_zone_<zone>_mode` | Current mode exists; duplicates native/select state |
-| Domestic hot water enabled | `binary_sensor.<device>_domestic_hot_water_enabled` | DHW is not hidden |
+| Domestic hot water enabled | `binary_sensor.<device>_dhw_enabled` | DHW is not hidden |
 | Zone `<zone>` heating active | `binary_sensor.<device>_zone_<zone>_heating_active` | Flag is returned; duplicates thermostat activity |
 | Zone `<zone>` cooling active | `binary_sensor.<device>_zone_<zone>_cooling_active` | Cooling and flag are returned |
-| Heating circuit 700 operating mode | `sensor.<device>_heating_circuit_700_operating_mode` | A zone or BSB point exists |
-| Heating circuit 710 comfort setpoint | `sensor.<device>_heating_circuit_710_comfort_setpoint` | A zone or BSB point exists |
-| Heating circuit 712 reduced setpoint | `sensor.<device>_heating_circuit_712_reduced_setpoint` | A zone or BSB point exists |
-| Heating circuit 714 frost setpoint | `sensor.<device>_heating_circuit_714_frost_protection_setpoint` | A zone or BSB point exists |
-| Heating circuit 720 curve slope | `sensor.<device>_heating_circuit_720_heating_curve_slope` | A zone or BSB point exists |
-| Heating circuit 730 summer/winter limit | `sensor.<device>_heating_circuit_730_summer_winter_heating_limit` | A zone or BSB point exists |
+| Heating circuit 700 operating mode | `sensor.<device>_heating_circuit_operating_mode_700` | A zone or BSB point exists |
+| Heating circuit 710 comfort setpoint | `sensor.<device>_heating_circuit_comfort_setpoint_710` | A zone or BSB point exists |
+| Heating circuit 712 reduced setpoint | `sensor.<device>_heating_circuit_reduced_setpoint_712` | A zone or BSB point exists |
+| Heating circuit 714 frost setpoint | `sensor.<device>_heating_circuit_frost_protection_setpoint_714` | A zone or BSB point exists |
+| Heating circuit 720 curve slope | `sensor.<device>_heating_curve_slope_720` | A zone or BSB point exists |
+| Heating circuit 730 summer/winter limit | `sensor.<device>_summer_winter_heating_limit_730` | A zone or BSB point exists |
 | Heat pump gas temperature | `sensor.<device>_heat_pump_gas_temperature` | Heat-pump capability or point exists |
 | Source outlet temperature | `sensor.<device>_source_outlet_temperature` | Heat-pump capability or point exists |
 | Source outlet temperature minimum (8430) | `sensor.<device>_source_outlet_temperature_minimum` | Remocon advertises heat-pump capability |
@@ -409,24 +448,6 @@ sensor and sums its latest 12 entries for the 12-month sensor. A reported zero i
 reading. Missing buckets leave the affected period unavailable. Each value is a
 windowed consumption reading in kWh.
 
-### Galevo heat pump status with EM20
-
-On Galevo plants that report an EM20 energy manager, the integration adds these read-only
-sensors as their readings become available.
-
-| Sensor | Reading |
-| --- | --- |
-| Heat pump mode | `off`, `standby`, `cooling`, `heating`, or `defrost`. Home Assistant translates the display label. |
-| Heating circuit backup heater | `off` or `on`. Home Assistant translates the display label. |
-| Heat pump flow temperature | Measured water flow temperature at the heat pump. |
-| Heat pump outside air temperature | Outdoor temperature measured at the heat pump. |
-| Heating circuit flow temperature | Uses the main heating circuit reading when available and switches to the EM20 reading when needed. Both sources use the same entity. |
-
-The integration reads these values after each regular gateway update. Missing, invalid, or
-unreadable values make the affected EM20 readings unavailable until a valid update. The mode
-sensor reports what the heat pump was doing when polled. The default one-hour polling interval
-can miss an entire defrost cycle.
-
 ### Galevo estimated seasonal performance factor (SPF)
 
 **Estimated SPF – previous calendar year** divides the total heat produced for space heating
@@ -434,7 +455,9 @@ and domestic hot water by the total electricity used for those same services ove
 through December of the prior year. For example, 9,000 kWh of heat and 3,000 kWh of electricity
 give an estimated SPF of 3.00. The ratio combines the kWh totals across all months and uses.
 Its `year` attribute shows the year represented by the value. The calculation excludes cooling.
-In German, the sensor is named **Geschätzte Jahresarbeitszahl – Vorjahr**.
+New entities use `sensor.<device>_estimated_spf_previous_calendar_year`. In German, the
+sensor is named **Geschätzte Jahresarbeitszahl – Vorjahr**. Home Assistant displays two
+decimals by default. Templates and automations can still read the full calculated value.
 
 The source is the unrounded **Energy produced** and **Electricity** data from Remocon web
 metering. These figures are Remocon estimates. Any supplemental consumption is reflected to

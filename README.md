@@ -65,14 +65,15 @@ Available controls and readings depend on the features reported by each gateway.
 | **Holidays** | View holidays in a read-only zone calendar. Start, extend, or cancel the current holiday. Zone 1 offers Reduced or Frost protection. | Enter plant-wide start and end dates. Use the Holiday switch to submit or cancel the period. |
 | **Heating configuration** | Frost-protection temperature, heating-curve slope, and summer/winter limit. | Heating and cooling flow temperatures and offsets, plus automatic thermoregulation. |
 | **Quiet mode and hot-water boost** | — | Dedicated on/off switches. |
+| **EM20 heat-pump status** | — | With an EM20 energy manager, shows heat-pump mode (including sampled defrost), electric backup heater status, heat-pump flow and outside air temperatures, and a fallback for heating-circuit flow temperature. |
 | **Energy history** | Optional annual history for energy used and delivered, cooling, and performance factor. | Heating, hot-water, and cooling consumption for four periods, plus an estimated seasonal performance factor (SPF) for the previous calendar year when Remocon provides complete metering data. |
 | **Weekly programs** | Read-only schedule data in diagnostics. | Read-only schedule data in diagnostics. |
 | **Controller diagnostics** | Controller faults, maintenance, appliance health, and supported BSB datapoints. | Controller faults, bus device inventory, gateway signal level, and supported Remocon data items. |
 
 Both families provide current readings such as temperatures, pressure, flow, heat demand, and
 operating state, plus a manual refresh button. The gateway and installed probes determine which
-rows and readings apply. A dash means the integration provides no control for that feature on
-that family. See the [complete entity guide](docs/entities.md) and the
+rows and readings apply. A dash means the feature is unavailable on that controller
+family. See the [complete entity guide](docs/entities.md) and the
 [changelog](CHANGELOG.md).
 
 ```text
@@ -95,8 +96,9 @@ which the integration fetches in the background.
 Each gateway has its own ELCO Aerotop device. BSB adds controller datapoints for heating
 configuration, boiler and maintenance details, and annual energy history. Galevo adds plant
 mode, quiet mode, hot-water boost, automatic thermoregulation, and consumption reports.
-Galevo plants with an EM20 energy manager also report heat-pump operating mode, backup heater
-status, and additional temperatures. The operating mode can show defrost during a poll.
+[Galevo EM20 sensors](docs/entities.md#galevo-heat-pump-status-with-em20) appear when the
+gateway supplies usable readings. At the default one-hour polling interval, a short defrost
+cycle can occur between readings.
 The device page includes native thermostat and hot-water controls, everyday readings, and
 fault information. You can enable optional diagnostics in the device's entity settings.
 
@@ -110,8 +112,8 @@ and enabled or disabled settings.
 
 The [dashboard guide](docs/dashboard.md) includes the [anonymized BSB Heating view](docs/examples/heat-pump-dashboard-bsb.yaml)
 from the screenshot and a [built-in-card example](docs/examples/heat-pump-dashboard.yaml) for
-either controller family. It also shows how to add Galevo mode and energy or BSB maintenance and
-annual performance cards. Use your actual entity IDs from the Home Assistant device page.
+either controller family. It shows how to add Galevo EM20 status and energy or BSB maintenance
+and annual performance cards. Use your actual entity IDs from the Home Assistant device page.
 
 ## Annual performance
 
@@ -329,6 +331,9 @@ off-season comfort controls keep their IDs and appear as unavailable.
 - Plant and zone data are coordinated into a single Home Assistant snapshot.
 - Normal plant, zone, and system-item values refresh at the configured polling interval: 60
   minutes by default.
+- On Galevo with EM20, the status sensors refresh after each regular core update. Missing or
+  unreadable status readings become unavailable. The heating-circuit flow sensor can still use
+  the primary reading when it is valid.
 - Schedules, maintenance, monitoring, BSB diagnostics, and energy history refresh in a deferred
   background cycle approximately every 60 minutes, independently of the selected normal polling
   interval. Their first deferred refresh starts after the first successful core snapshot, including
@@ -407,6 +412,10 @@ consider personal. The project accepts anonymized diagnostics as test fixtures o
 Entity availability depends on the data returned by the controller. Zone entities require that
 zone to be discovered. Writable numbers require a current value, while selects require a list of
 allowed modes. Check diagnostics to see what the integration parsed.
+
+If you're looking for EM20 sensors, check `data.discovery.features.hasEm20` in a downloaded
+diagnostic. A Galevo gateway must report `true` and return a usable value before each new
+EM20-only sensor appears. See the [EM20 entity IDs and availability rules](docs/entities.md#galevo-heat-pump-status-with-em20).
 
 ### A write is rejected or does not remain set
 

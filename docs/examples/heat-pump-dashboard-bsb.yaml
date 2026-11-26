@@ -45,7 +45,7 @@ views:
                 attribute: temperature
                 name: Comfort
                 color: orange
-              - entity: number.elco_example_domestic_hot_water_reduced_temperature
+              - entity: number.elco_example_dhw_reduced_temperature
                 name: Reduced
                 color: blue
       - type: grid

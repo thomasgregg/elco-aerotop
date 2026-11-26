@@ -65,15 +65,41 @@ thermostat's activity shows the current action when the controller provides it.
 
 ## Add target temperatures to the hot-water graph
 
-On BSB, add the comfort and reduced hot-water number entities to the graph's `entities`
-list if they are present and enabled. For Galevo, add **Domestic hot water target temperature**
-to show the current mode's target. Use **Current** for the tank reading and **Target** for the
-setpoint so users can tell them apart.
+The BSB example already plots the current tank temperature, comfort target from the water
+heater, and reduced target from `number.elco_example_dhw_reduced_temperature`. Use your
+registered entity ID if it differs. For Galevo, add **Domestic hot water target temperature**
+to show the current mode's target.
 
 ```yaml
               - entity: sensor.elco_example_domestic_hot_water_target_temperature
                 name: Target
 ```
+
+## Add Galevo EM20 status
+
+On a Galevo gateway with an EM20 energy manager, add this section alongside the other
+entries under `sections:`. It uses built-in cards. Replace the IDs with those on your
+device page and remove any rows your gateway does not report. **Heat pump mode** shows the
+sampled operating state, such as **Heating** or **Defrost**. The **Plant mode** select in
+the next example sets the plant's operating season.
+
+```yaml
+      - type: grid
+        cards:
+          - type: heading
+            heading: Heat pump status
+            icon: mdi:heat-pump
+          - type: entities
+            entities:
+              - entity: sensor.elco_example_heat_pump_mode
+              - entity: sensor.elco_example_ch_backup_resistance
+              - entity: sensor.elco_example_heat_pump_flow_temperature
+              - entity: sensor.elco_example_heat_pump_outside_air_temperature
+              - entity: sensor.elco_example_heating_circuit_flow_temperature
+```
+
+See the [EM20 entity guide](entities.md#galevo-heat-pump-status-with-em20) for which
+readings appear and how polling affects defrost.
 
 ## Add Galevo mode and energy
 

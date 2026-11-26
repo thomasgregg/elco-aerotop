@@ -2,6 +2,15 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.4.5
+
+- Fix the BSB dashboard example's reduced hot-water target to use
+  `number.<device>_dhw_reduced_temperature` on fresh installations.
+- Document the default IDs for all five Galevo EM20 readings, add a native dashboard
+  example, and explain gateway support, polling limits, and missing readings.
+- Align the entity catalogue with the current BSB and Galevo defaults and clarify
+  that the SPF display suggests two decimals while automations use the full value.
+
 ## 0.4.4
 
 - Add read-only operating mode, electric backup heater status, heat pump flow temperature,
