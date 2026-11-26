@@ -95,6 +95,8 @@ which the integration fetches in the background.
 Each gateway has its own ELCO Aerotop device. BSB adds controller datapoints for heating
 configuration, boiler and maintenance details, and annual energy history. Galevo adds plant
 mode, quiet mode, hot-water boost, automatic thermoregulation, and consumption reports.
+Galevo plants with an EM20 energy manager also report heat-pump operating mode, backup heater
+status, and additional temperatures. The operating mode can show defrost during a poll.
 The device page includes native thermostat and hot-water controls, everyday readings, and
 fault information. You can enable optional diagnostics in the device's entity settings.
 

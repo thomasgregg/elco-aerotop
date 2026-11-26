@@ -2,7 +2,7 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
-## Unreleased
+## 0.4.4
 
 - Add read-only operating mode, electric backup heater status, heat pump flow temperature,
   outside air temperature, and a heating circuit flow temperature fallback for Galevo plants
