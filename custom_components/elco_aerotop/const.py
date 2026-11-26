@@ -322,4 +322,7 @@ MENU_ITEM_HYBRID_IDS: Final = tuple(range(221, 251))
 MENU_ITEM_HP_IDS: Final = tuple(range(251, 270))
 MENU_ITEM_CASCADE_IDS: Final = tuple(range(270, 275))
 
+# Read-only live status for Galevo plants with an EM20 energy manager.
+MENU_ITEM_HP_STATUS_IDS: Final = (337, 340, 341, 348, 349)
+
 DEFAULT_UPDATE_INTERVAL: Final = timedelta(seconds=DEFAULT_SCAN_INTERVAL)

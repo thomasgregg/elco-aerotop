@@ -96,6 +96,19 @@ Galevo menu-item IDs come from a bounded mobile API catalog. The integration tri
 falls back to individual IDs when the batch yields no usable results. Menu-item discovery is
 read-only.
 
+EM20 status is a separate read-only batch for Galevo plants with `Features.hasEm20: true`.
+It requests items 337 (heating circuit backup heater), 340 (operating mode), 341 (outside air
+temperature at the heat pump), 348 (heat pump flow temperature), and 349 (heating circuit flow
+temperature). The integration uses 349 as the fallback for `ChFlowTemp`. The mobile app names
+these items with the `ForEm20` suffix. Mode values 9 and 17 both represent defrost.
+
+The batch runs after core polling, with a five-second limit that includes waiting for gateway
+access. User commands cancel pending status reads before accessing the gateway. Failed reads
+clear the entire batch and partial responses clear only the missing items. Rate-limit responses
+use the coordinator's gateway backoff. A Galevo gateway can omit an
+inapplicable ID, return an empty response, or reject the batch with HTTP 500. The EM20 batch
+uses the fixed catalog above and the normal polling interval.
+
 `menuItems` belongs to the Galevo controller family. When `Features` reports `systemType: 5` (BSB),
 the integration skips that family and records `unsupported:bsb_system`; BSB discovery continues
 through `bsbPlantData` and the reviewed `PlantMenuBsb/ReadDataPoints` allowlist.

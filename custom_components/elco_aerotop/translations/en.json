@@ -134,6 +134,10 @@
       "buffer_economy_cooling_temperature": { "name": "Buffer economy cooling temperature" },
       "buffer_economy_heating_temperature": { "name": "Buffer economy heating temperature" },
       "bus_devices": { "name": "Bus devices" },
+      "ch_backup_resistance": {
+        "name": "Heating circuit backup heater",
+        "state": { "off": "Off", "on": "On" }
+      },
       "controller_clock": { "name": "Controller clock" },
       "controller_error_count": { "name": "Controller error count" },
       "cooling_2_flow_setpoint": { "name": "Cooling circuit 2 flow setpoint" },
@@ -159,6 +163,17 @@
       "heat_pump_flow_setpoint": { "name": "Heat pump flow setpoint" },
       "heat_pump_flow_temperature": { "name": "Heat pump flow temperature" },
       "heat_pump_gas_temperature": { "name": "Heat pump gas temperature" },
+      "heat_pump_mode": {
+        "name": "Heat pump mode",
+        "state": {
+          "off": "Off",
+          "standby": "Standby",
+          "cooling": "Cooling",
+          "heating": "Heating",
+          "defrost": "Defrost"
+        }
+      },
+      "heat_pump_outside_air_temperature": { "name": "Heat pump outside air temperature" },
       "heat_pump_return_temperature": { "name": "Heat pump return temperature" },
       "heating_circuit_comfort_setpoint_710": { "name": "Heating circuit 710 comfort setpoint" },
       "heating_circuit_flow_setpoint_temperature": { "name": "Heating circuit flow setpoint temperature" },

@@ -41,7 +41,7 @@ def test_translation_catalogs_cover_setup_options_and_entity_names():
             re.findall(r"\{[^{}]+\}", translated)
         ), path
         if path[0] == "entity":
-            assert path[-1] == "name", path
+            assert path[-1] == "name" or (path[1] == "sensor" and path[-2] == "state"), path
 
 
 def test_german_labels_match_for_shared_sensors_and_controls():

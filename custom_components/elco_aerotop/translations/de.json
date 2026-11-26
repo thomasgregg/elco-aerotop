@@ -134,6 +134,10 @@
       "buffer_economy_cooling_temperature": { "name": "Pufferspeicher – Reduzierte Temperatur im Kühlbetrieb" },
       "buffer_economy_heating_temperature": { "name": "Pufferspeicher – Reduzierte Temperatur im Heizbetrieb" },
       "bus_devices": { "name": "Busgeräte" },
+      "ch_backup_resistance": {
+        "name": "Elektrische Zusatzheizung des Heizkreises",
+        "state": { "off": "Aus", "on": "Ein" }
+      },
       "controller_clock": { "name": "Regleruhr" },
       "controller_error_count": { "name": "Anzahl der Reglerstörungen" },
       "cooling_2_flow_setpoint": { "name": "Kühlkreis 2 – Vorlaufsollwert" },
@@ -159,6 +163,17 @@
       "heat_pump_flow_setpoint": { "name": "Wärmepumpen-Vorlaufsollwert" },
       "heat_pump_flow_temperature": { "name": "Wärmepumpen-Vorlauftemperatur" },
       "heat_pump_gas_temperature": { "name": "Kältemittelgastemperatur der Wärmepumpe" },
+      "heat_pump_mode": {
+        "name": "Wärmepumpenmodus",
+        "state": {
+          "off": "Aus",
+          "standby": "Standby",
+          "cooling": "Kühlen",
+          "heating": "Heizen",
+          "defrost": "Abtauen"
+        }
+      },
+      "heat_pump_outside_air_temperature": { "name": "Außenlufttemperatur der Wärmepumpe" },
       "heat_pump_return_temperature": { "name": "Wärmepumpen-Rücklauftemperatur" },
       "heating_circuit_comfort_setpoint_710": { "name": "Heizkreis – Komfortsollwert (710)" },
       "heating_circuit_flow_setpoint_temperature": { "name": "Heizkreis-Vorlaufsolltemperatur" },

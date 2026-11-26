@@ -29,6 +29,16 @@ from .models import (
     bsb_point_value,
 )
 
+_EM20_MODE_STATES = {
+    0: "off",
+    1: "standby",
+    2: "cooling",
+    3: "heating",
+    9: "defrost",
+    17: "defrost",
+}
+_EM20_BACKUP_HEAT_STATES = {0: "off", 1: "on"}
+
 
 class ElcoSensor(ElcoAerotopEntity, SensorEntity):
     """A coordinator-backed ELCO sensor."""
@@ -53,6 +63,7 @@ class ElcoSensor(ElcoAerotopEntity, SensorEntity):
         zone_number: int | None = None,
         translation_key: str | None = None,
         translation_placeholders: dict[str, str] | None = None,
+        enum_options: list[str] | None = None,
     ) -> None:
         super().__init__(
             coordinator,
@@ -65,7 +76,10 @@ class ElcoSensor(ElcoAerotopEntity, SensorEntity):
         self._available_fn = available_fn
         self._attr_entity_category = entity_category
         self._attr_entity_registry_enabled_default = enabled_default
-        if temperature:
+        if enum_options is not None:
+            self._attr_device_class = SensorDeviceClass.ENUM
+            self._attr_options = enum_options
+        elif temperature:
             self._attr_device_class = SensorDeviceClass.TEMPERATURE
             self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
             self._attr_state_class = SensorStateClass.MEASUREMENT
@@ -158,11 +172,11 @@ class ElcoGalevoEstimatedJazSensor(ElcoAerotopEntity, SensorEntity):
 def _as_number(value: Any) -> float | None:
     if isinstance(value, bool):
         return None
-    if isinstance(value, int | float):
-        return float(value)
     try:
+        if isinstance(value, int | float):
+            return float(value)
         return float(str(value).replace(",", "."))
-    except (TypeError, ValueError):
+    except (OverflowError, TypeError, ValueError):
         return None
 
 
@@ -269,6 +283,31 @@ def _menu_item_value(data: ElcoData, item_id: str) -> float | None:
     if not isinstance(item, dict) or item.get("error") is True:
         return None
     return _as_number(item.get("value"))
+
+
+def _em20_menu_item_value(data: ElcoData, item_id: str) -> float | None:
+    item = data.discovery.menu_items.get(item_id)
+    if not isinstance(item, dict) or (
+        item.get("invalid") is True
+        or item.get("available") is False
+        or item.get("isAvailable") is False
+    ):
+        return None
+    value = _menu_item_value(data, item_id)
+    return value if value is not None and isfinite(value) else None
+
+
+def _em20_enum_state(data: ElcoData, item_id: str, states: dict[int, str]) -> str | None:
+    value = _em20_menu_item_value(data, item_id)
+    return states.get(int(value)) if value is not None and value.is_integer() else None
+
+
+def _galevo_em20_flow_temperature(data: ElcoData) -> float | None:
+    if _has_system_item(data, "ChFlowTemp"):
+        value = _as_number(data.discovery.system_value("ChFlowTemp"))
+        if value is not None and isfinite(value):
+            return value
+    return _em20_menu_item_value(data, "349")
 
 
 def _bsb_available(data: ElcoData, address: str) -> bool:
@@ -524,7 +563,20 @@ def _create_entities(
             False,
         ),
     )
+    em20 = not bsb_family and features.get("hasEm20") is True
     for item_id, key, is_pressure in system_sensor_specs:
+        if em20 and item_id == "ChFlowTemp":
+            if _galevo_em20_flow_temperature(data) is not None:
+                entities.append(
+                    ElcoSensor(
+                        coordinator,
+                        key,
+                        _galevo_em20_flow_temperature,
+                        temperature=True,
+                        available_fn=lambda state: _galevo_em20_flow_temperature(state) is not None,
+                    )
+                )
+            continue
         if _has_system_item(data, item_id) or (
             bsb_family and item_id in {"ChFlowTemp", "ChFlowSetpointTemp"}
         ):
@@ -673,6 +725,45 @@ def _create_entities(
                     enabled_default=enabled_default,
                 )
             )
+
+        if em20:
+            for item_id, key in (
+                ("348", "heat_pump_flow_temperature"),
+                ("341", "heat_pump_outside_air_temperature"),
+            ):
+                if _em20_menu_item_value(data, item_id) is None:
+                    continue
+                entities.append(
+                    ElcoSensor(
+                        coordinator,
+                        key,
+                        lambda state, source=item_id: _em20_menu_item_value(state, source),
+                        temperature=True,
+                        available_fn=lambda state, source=item_id: (
+                            _em20_menu_item_value(state, source) is not None
+                        ),
+                    )
+                )
+
+            for item_id, key, states in (
+                ("340", "heat_pump_mode", _EM20_MODE_STATES),
+                ("337", "ch_backup_resistance", _EM20_BACKUP_HEAT_STATES),
+            ):
+                if _em20_enum_state(data, item_id, states) is None:
+                    continue
+                entities.append(
+                    ElcoSensor(
+                        coordinator,
+                        key,
+                        lambda state, source=item_id, options=states: _em20_enum_state(
+                            state, source, options
+                        ),
+                        enum_options=list(dict.fromkeys(states.values())),
+                        available_fn=lambda state, source=item_id, options=states: (
+                            _em20_enum_state(state, source, options) is not None
+                        ),
+                    )
+                )
 
         if _has_system_item(data, "PlantMode"):
             entities.append(

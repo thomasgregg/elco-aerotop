@@ -39,6 +39,7 @@ from .const import (
     MENU_ITEM_BASE_IDS,
     MENU_ITEM_CASCADE_IDS,
     MENU_ITEM_HP_IDS,
+    MENU_ITEM_HP_STATUS_IDS,
     MENU_ITEM_HYBRID_IDS,
     MENU_ITEM_SLP_IDS,
     MENU_ITEM_VMC_IDS,
@@ -65,6 +66,7 @@ _SLOW_DISCOVERY_INTERVAL_SECONDS = 3600
 _OPTIONAL_PROBE_TIMEOUT = 65
 _BSB_PROBE_TIMEOUT = 30
 _GALEVO_METERING_TIMEOUT = 30
+_HP_STATUS_TIMEOUT = 5
 _TRANSIENT_RECOVERY_DELAYS = (60, 300, 900)
 _DEFAULT_RATE_LIMIT_DELAY = 300
 _TRANSIENT_RESPONSE_STATUSES = frozenset({408, 500, 502, 503, 504})
@@ -126,6 +128,8 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         self._polls_until_slow_discovery = 0
         self._initial_discovery_complete = False
         self._background_discovery_task: asyncio.Task[None] | None = None
+        self._hp_status_task: asyncio.Task[None] | None = None
+        self._hp_status_items: dict[str, dict[str, Any]] = {}
         self.initial_refresh_task: asyncio.Task[None] | None = None
         self.unloading = False
         self._write_refresh_task: asyncio.Task[Any] | None = None
@@ -615,13 +619,62 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
         )
 
     @callback
+    def _menu_items_with_hp_status(
+        self, menu_items: dict[str, dict[str, Any]]
+    ) -> dict[str, dict[str, Any]]:
+        """Combine live status with the slower settings catalog."""
+        return {**menu_items, **self._hp_status_items}
+
+    async def _async_refresh_hp_status(self) -> None:
+        """Read optional EM20 status after publishing core data."""
+        items: dict[str, dict[str, Any]] = {}
+        try:
+            async with asyncio.timeout(_HP_STATUS_TIMEOUT), self._gateway_lock:
+                if (
+                    not self.unloading
+                    and not self._command_lock.locked()
+                    and not self._gateway_backoff()
+                ):
+                    response = await self.api.async_get_menu_items(MENU_ITEM_HP_STATUS_IDS)
+                    items = {
+                        key: response[key]
+                        for item_id in MENU_ITEM_HP_STATUS_IDS
+                        if (key := str(item_id)) in response
+                    }
+        except (ElcoApiError, TimeoutError) as err:
+            if isinstance(err, ElcoApiError):
+                self._record_response_backoff(err)
+            _LOGGER.debug("Heat-pump status menu items unreadable: %s", err)
+
+        self._publish_hp_status(items)
+
+    @callback
+    def _publish_hp_status(self, items: dict[str, dict[str, Any]]) -> None:
+        """Update the optional EM20 readings on the latest core snapshot."""
+        if self.unloading or items == self._hp_status_items:
+            return
+        self._hp_status_items = items
+        if self.data is None or not self.last_update_success:
+            return
+        discovery = replace(
+            self.data.discovery,
+            menu_items=self._menu_items_with_hp_status(self._slow_discovery.menu_items),
+        )
+        self.data = replace(self.data, discovery=discovery)
+        self.async_update_listeners()
+
+    @callback
     def _publish_deferred_discovery(self, discovery: ReadOnlyDiscovery) -> None:
         """Merge optional data into the latest core snapshot."""
         if self.unloading:
             return
         self._slow_discovery = discovery
         current = self.data
-        discovery = replace(discovery, system_items=current.discovery.system_items)
+        discovery = replace(
+            discovery,
+            system_items=current.discovery.system_items,
+            menu_items=self._menu_items_with_hp_status(discovery.menu_items),
+        )
         self.data = replace(current, discovery=discovery)
         self.async_update_listeners()
 
@@ -667,19 +720,29 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
             self.async_update_listeners()
 
     async def _async_cancel_deferred_discovery(self) -> None:
-        """Stop optional gateway traffic before a user command."""
-        task = self._background_discovery_task
-        if task is None or task.done() or task is asyncio.current_task():
-            return
-        task.cancel()
-        with suppress(asyncio.CancelledError):
-            await task
-        self._background_discovery_task = None
+        """Stop optional gateway reads before a user command or unload."""
+        current_task = asyncio.current_task()
+        tasks = [
+            task
+            for task in (self._background_discovery_task, self._hp_status_task)
+            if task is not None and not task.done() and task is not current_task
+        ]
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            with suppress(asyncio.CancelledError):
+                await task
+        if self._background_discovery_task in tasks:
+            self._background_discovery_task = None
+        if self._hp_status_task in tasks:
+            self._hp_status_task = None
+            self._publish_hp_status({})
 
     def cancel_deferred_discovery(self) -> None:
         """Cancel entry-owned discovery during unload."""
-        if self._background_discovery_task is not None:
-            self._background_discovery_task.cancel()
+        for task in (self._background_discovery_task, self._hp_status_task):
+            if task is not None:
+                task.cancel()
 
     async def async_stop_background_discovery(self) -> None:
         """Cancel and drain entry-owned work before platform unload."""
@@ -736,6 +799,7 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
             system_items=system_items,
             probe_status=status,
             system_type=system_type,
+            menu_items=self._menu_items_with_hp_status(self._slow_discovery.menu_items),
         )
         return replace(data, discovery=discovery)
 
@@ -819,8 +883,21 @@ class ElcoDataUpdateCoordinator(DataUpdateCoordinator[ElcoData]):
 
             if self.unloading:
                 raise UpdateFailed("The integration is unloading")
+            if self._hp_status_items and not self.last_update_success:
+                self._hp_status_items.clear()
             updated_data = self._core_snapshot(data, system_items or {}, status, system_type)
             self._record_snapshot(updated_data)
+            if (
+                not write_refresh
+                and system_type == SYSTEM_TYPE_GALEVO
+                and self._features.get("hasEm20") is True
+                and (self._hp_status_task is None or self._hp_status_task.done())
+            ):
+                self._hp_status_task = self.hass.async_create_background_task(
+                    self._async_refresh_hp_status(),
+                    f"{DOMAIN} EM20 status",
+                    eager_start=False,
+                )
             if write_refresh and system_type != SYSTEM_TYPE_GALEVO:
                 self._start_background_discovery(
                     lambda: self._async_refresh_bsb_system_items(updated_data)

@@ -409,6 +409,24 @@ sensor and sums its latest 12 entries for the 12-month sensor. A reported zero i
 reading. Missing buckets leave the affected period unavailable. Each value is a
 windowed consumption reading in kWh.
 
+### Galevo heat pump status with EM20
+
+On Galevo plants that report an EM20 energy manager, the integration adds these read-only
+sensors as their readings become available.
+
+| Sensor | Reading |
+| --- | --- |
+| Heat pump mode | `off`, `standby`, `cooling`, `heating`, or `defrost`. Home Assistant translates the display label. |
+| Heating circuit backup heater | `off` or `on`. Home Assistant translates the display label. |
+| Heat pump flow temperature | Measured water flow temperature at the heat pump. |
+| Heat pump outside air temperature | Outdoor temperature measured at the heat pump. |
+| Heating circuit flow temperature | Uses the main heating circuit reading when available and switches to the EM20 reading when needed. Both sources use the same entity. |
+
+The integration reads these values after each regular gateway update. Missing, invalid, or
+unreadable values make the affected EM20 readings unavailable until a valid update. The mode
+sensor reports what the heat pump was doing when polled. The default one-hour polling interval
+can miss an entire defrost cycle.
+
 ### Galevo estimated seasonal performance factor (SPF)
 
 **Estimated SPF – previous calendar year** divides the total heat produced for space heating

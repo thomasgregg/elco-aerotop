@@ -2,6 +2,12 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## Unreleased
+
+- Add read-only operating mode, electric backup heater status, heat pump flow temperature,
+  outside air temperature, and a heating circuit flow temperature fallback for Galevo plants
+  with an EM20 energy manager. Thanks to @lodzen for contributing the EM20 readings.
+
 ## 0.4.3
 
 - Fix Galevo electricity consumption for the last complete month and last 12 complete months.
