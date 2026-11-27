@@ -77,6 +77,7 @@ from .const import (
     USER_AGENT,
 )
 from .control_mapping import ZONE_MODE_AUTOMATIC
+from .gateway import normalize_gateway_id, plant_gateway_ids
 from .models import (
     GALEVO_DHW_MODE_TO_RAW,
     GALEVO_ZONE_MODE_TO_RAW,
@@ -203,7 +204,8 @@ class ElcoApiClient:
         self._session = session
         self._username = username
         self._password = password
-        self.gateway_id = gateway_id.upper()
+        # The empty value is used only to list plants before a gateway is selected.
+        self.gateway_id = normalize_gateway_id(gateway_id) if gateway_id else ""
         self.base_url = base_url.rstrip("/")
         self._authenticated = False
         self._auth_lock = asyncio.Lock()
@@ -244,9 +246,13 @@ class ElcoApiClient:
 
     def _operation(self, path: str) -> str:
         """Identify an endpoint without including its gateway identifier."""
-        if self.gateway_id:
-            return path.replace(f"/{self.gateway_id}", "/<gateway>")
-        return path
+        if not self.gateway_id:
+            return path
+        return re.sub(
+            rf"(/|[?&](?:id|gatewayId)=){re.escape(self.gateway_id)}(?=[/?&]|$)",
+            r"\1<gateway>",
+            path,
+        )
 
     async def async_login(self) -> None:
         """Create an authenticated R2 cookie session."""
@@ -1218,8 +1224,7 @@ class ElcoApiClient:
     async def async_get_plant_metadata(self) -> dict[str, Any]:
         """Fetch metadata, serial, and location from the native plant list."""
         for plant in await self.async_list_plants():
-            identifiers = {str(plant.get(key, "")).upper() for key in ("gwId", "gwSerial")}
-            if self.gateway_id in identifiers:
+            if self.gateway_id in plant_gateway_ids(plant):
                 return plant
         raise ElcoResponseError("Configured gateway was not present in the plant list")
 

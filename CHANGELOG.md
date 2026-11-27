@@ -2,6 +2,12 @@
 
 All notable changes to ELCO Aerotop for Home Assistant are documented here.
 
+## 0.4.6
+
+- Accept pasted Remocon plant dashboard URLs in the gateway ID field and correct legacy
+  saved IDs with navigation parameters. Preserve registered Home Assistant devices and
+  entities when correcting an existing entry.
+
 ## 0.4.5
 
 - Fix the BSB dashboard example's reduced hot-water target to use

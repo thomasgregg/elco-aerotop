@@ -225,13 +225,19 @@ If the version you need is unavailable in HACS, install it manually using the in
 | Email | Yes | — | Email address used to sign in to Remocon.net. |
 | Password | Yes | — | Remocon.net account password. |
 | Remocon.net URL | No | `https://www.remocon-net.remotethermo.com` | Service base URL. Keep the default unless the plant uses another branded Remocon endpoint. |
-| Gateway ID | No | — | Enter the dashboard gateway ID to validate a gateway directly if account discovery cannot list it. |
+| Gateway ID | No | — | Enter the gateway ID or paste the plant dashboard URL. Leave blank for account discovery. |
 
 After sign-in, the integration lists unconfigured gateways on the account. One available
 gateway is selected automatically; choose one gateway when several are available. Repeat
 the setup to add another gateway, including a Galevo gateway alongside an existing BSB
-entry. Explicitly unsupported controller families are rejected. An existing config entry
-keeps its saved gateway and title on upgrade.
+entry. Explicitly unsupported controller families are rejected.
+
+When you paste a plant dashboard URL, the integration extracts the gateway ID and discards
+browser navigation parameters. On upgrade, existing entries with those parameters in their
+saved ID are corrected in place. Home Assistant retains the registered device, entity IDs,
+custom names, and other registry settings.
+Home Assistant reports a migration error if the corrected ID conflicts with an existing
+entry or registry record.
 
 ## Options
 

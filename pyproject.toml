@@ -1,6 +1,6 @@
 [project]
 name = "elco-aerotop"
-version = "0.4.5"
+version = "0.4.6"
 description = "Home Assistant integration for ELCO Aerotop heat pumps via Remocon.net"
 requires-python = ">=3.12"
 dependencies = [

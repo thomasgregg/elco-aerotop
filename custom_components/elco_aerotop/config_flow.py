@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import suppress
 from typing import Any
 
 import voluptuous as vol
@@ -28,6 +29,7 @@ from .const import (
     CONF_BASE_URL,
     CONF_GATEWAY_ID,
     CONF_SCAN_INTERVAL,
+    CONFIG_ENTRY_MINOR_VERSION,
     DEFAULT_BASE_URL,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
@@ -35,6 +37,7 @@ from .const import (
     SYSTEM_TYPE_BSB,
     SYSTEM_TYPE_GALEVO,
 )
+from .gateway import normalize_gateway_id, plant_gateway_ids
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -75,6 +78,7 @@ class ElcoAerotopConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle configuration for ELCO Aerotop."""
 
     VERSION = 1
+    MINOR_VERSION = CONFIG_ENTRY_MINOR_VERSION
 
     def __init__(self) -> None:
         self._credentials: dict[str, Any] = {}
@@ -99,11 +103,7 @@ class ElcoAerotopConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             await client.async_login()
             if reauth:
                 plants = await client.async_list_plants()
-                if not any(
-                    client.gateway_id
-                    == str(plant.get("gwId") or plant.get("gwSerial", "")).strip().upper()
-                    for plant in plants
-                ):
+                if not any(client.gateway_id in plant_gateway_ids(plant) for plant in plants):
                     raise _GatewayAccessDenied
                 listed = True
             try:
@@ -146,10 +146,19 @@ class ElcoAerotopConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             session.detach()
         discovered: dict[str, dict[str, Any]] = {}
         for plant in plants:
-            gateway_id = str(plant.get("gwId") or plant.get("gwSerial") or "").strip()
-            if gateway_id:
-                discovered[gateway_id.upper()] = plant
+            if identifiers := plant_gateway_ids(plant):
+                discovered[identifiers[0]] = plant
         return discovered
+
+    def _configured_gateway_ids(self) -> set[str]:
+        """Recognize saved gateways even before a legacy entry has migrated."""
+        identifiers = set()
+        for entry in self._async_current_entries():
+            value = entry.data.get(CONF_GATEWAY_ID, entry.unique_id)
+            if isinstance(value, str):
+                with suppress(ValueError):
+                    identifiers.add(normalize_gateway_id(value))
+        return identifiers
 
     async def _async_validate_gateway(
         self, user_input: dict[str, Any], *, listed: bool = False
@@ -174,6 +183,8 @@ class ElcoAerotopConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         user_input: dict[str, Any],
         plant: dict[str, Any] | None,
     ) -> ConfigFlowResult:
+        if user_input[CONF_GATEWAY_ID] in self._configured_gateway_ids():
+            return self.async_abort(reason="already_configured")
         name = str((plant or {}).get("plantName") or "").strip()
         await self.async_set_unique_id(user_input[CONF_GATEWAY_ID])
         self._abort_if_unique_id_configured()
@@ -190,9 +201,16 @@ class ElcoAerotopConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             user_input[CONF_BASE_URL] = (
                 user_input.get(CONF_BASE_URL, DEFAULT_BASE_URL).strip().rstrip("/")
             )
-            manual_id = user_input.pop(CONF_GATEWAY_ID, "").strip().upper()
+            manual_id = user_input.pop(CONF_GATEWAY_ID, "").strip()
             if manual_id:
+                try:
+                    manual_id = normalize_gateway_id(manual_id)
+                except ValueError:
+                    candidate = {**user_input, CONF_GATEWAY_ID: manual_id}
+                    return self._show_user_form(candidate, {CONF_GATEWAY_ID: "invalid_gateway_id"})
                 candidate = {**user_input, CONF_GATEWAY_ID: manual_id}
+                if manual_id in self._configured_gateway_ids():
+                    return self.async_abort(reason="already_configured")
                 errors = await self._async_validate_gateway(candidate)
                 if not errors:
                     return await self._async_create_gateway_entry(candidate, None)
@@ -208,11 +226,12 @@ class ElcoAerotopConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected error while validating the Remocon connection")
                 errors["base"] = "unknown"
             else:
-                configured = {
-                    str(entry.unique_id or entry.data.get(CONF_GATEWAY_ID, "")).upper()
-                    for entry in self._async_current_entries()
+                configured = self._configured_gateway_ids()
+                available = {
+                    key: plant
+                    for key, plant in plants.items()
+                    if configured.isdisjoint(plant_gateway_ids(plant))
                 }
-                available = {key: plant for key, plant in plants.items() if key not in configured}
                 if not plants:
                     errors["base"] = "no_gateways"
                 elif not available:

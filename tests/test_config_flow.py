@@ -9,6 +9,12 @@ from unittest.mock import AsyncMock
 import aiohttp
 import pytest
 
+from custom_components.elco_aerotop.gateway import plant_gateway_ids
+
+
+class _StubGatewayAccessDenied(Exception):
+    """Stand-in for the config flow's account ownership error."""
+
 
 class _StubConnectionError(Exception):
     """Stand-in for ElcoConnectionError inside the exec'ed function."""
@@ -34,7 +40,13 @@ def _extract_validate():
 def _exec_validate(session):
     validate = _extract_validate()
     source = Path(__file__).parents[1] / "custom_components/elco_aerotop/config_flow.py"
-    client = SimpleNamespace(async_login=AsyncMock(), async_get_features=AsyncMock(), system_type=5)
+    client = SimpleNamespace(
+        async_login=AsyncMock(),
+        async_get_features=AsyncMock(),
+        async_list_plants=AsyncMock(),
+        gateway_id="TESTGATEWAY",
+        system_type=5,
+    )
 
     def create_session(hass, *, auto_cleanup):
         assert auto_cleanup is False
@@ -46,6 +58,8 @@ def _exec_validate(session):
         "ElcoApiClient": lambda *args: client,
         "ElcoConnectionError": _StubConnectionError,
         "ElcoResponseError": _StubResponseError,
+        "_GatewayAccessDenied": _StubGatewayAccessDenied,
+        "plant_gateway_ids": plant_gateway_ids,
         "_LOGGER": logging.getLogger("test"),
         "SYSTEM_TYPE_BSB": 5,
         "SYSTEM_TYPE_GALEVO": 3,
@@ -103,6 +117,29 @@ async def test_validation_tolerates_transient_probe_errors(probe_error):
         assert session.closed
         assert session.connector is None
         assert not connector.closed
+    finally:
+        await session.close()
+        await connector.close()
+
+
+@pytest.mark.parametrize("listed_serial", [" testgateway ", "UNRELATED"])
+async def test_reauth_checks_the_account_gateway_id_and_serial(listed_serial):
+    session = aiohttp.ClientSession()
+    connector = session.connector
+    validate, client, user_input = _exec_validate(session)
+    client.async_list_plants.return_value = [
+        {"gwId": "PLANTKEY", "gwSerial": listed_serial},
+    ]
+
+    try:
+        if listed_serial == "UNRELATED":
+            with pytest.raises(_StubGatewayAccessDenied):
+                await validate(SimpleNamespace(hass=object()), user_input, reauth=True)
+            client.async_get_features.assert_not_awaited()
+        else:
+            await validate(SimpleNamespace(hass=object()), user_input, reauth=True)
+            client.async_get_features.assert_awaited_once()
+        assert session.closed
     finally:
         await session.close()
         await connector.close()

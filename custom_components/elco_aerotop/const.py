@@ -6,6 +6,7 @@ from datetime import timedelta
 from typing import Final
 
 DOMAIN: Final = "elco_aerotop"
+CONFIG_ENTRY_MINOR_VERSION: Final = 2
 DEFAULT_BASE_URL: Final = "https://www.remocon-net.remotethermo.com"
 DEFAULT_SCAN_INTERVAL: Final = 3600
 MIN_SCAN_INTERVAL: Final = 60

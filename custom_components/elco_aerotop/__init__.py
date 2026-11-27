@@ -19,6 +19,7 @@ from .const import (
     PLATFORMS,
 )
 from .coordinator import ElcoDataUpdateCoordinator
+from .gateway_migration import async_migrate_entry as async_migrate_entry
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -47,7 +48,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     # Platform discovery listeners keep polling alive before entities exist.
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    _clear_legacy_configuration_url(hass, api.gateway_id)
+    _clear_legacy_configuration_url(hass, entry.entry_id, api.gateway_id)
     coordinator.initial_refresh_task = entry.async_create_background_task(
         hass,
         coordinator.async_refresh(),
@@ -57,12 +58,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-def _clear_legacy_configuration_url(hass: HomeAssistant, gateway_id: str) -> None:
+def _clear_legacy_configuration_url(hass: HomeAssistant, entry_id: str, gateway_id: str) -> None:
     """Remove the configuration URL saved by releases before 0.2.3."""
     registry = dr.async_get(hass)
-    device = registry.async_get_device(identifiers={(DOMAIN, gateway_id)})
-    if device is not None and device.configuration_url is not None:
-        registry.async_update_device(device.id, configuration_url=None)
+    for device in dr.async_entries_for_config_entry(registry, entry_id):
+        if (DOMAIN, gateway_id) in device.identifiers and device.configuration_url is not None:
+            registry.async_update_device(device.id, configuration_url=None)
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

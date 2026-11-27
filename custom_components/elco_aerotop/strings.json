@@ -30,6 +30,7 @@
     "error": {
       "cannot_connect": "Unable to connect to Remocon.net",
       "invalid_auth": "Invalid email or password",
+      "invalid_gateway_id": "Enter a gateway ID or a Remocon plant dashboard URL",
       "no_gateways": "No gateways were found on this account",
       "unknown": "Unexpected error",
       "gateway_access_denied": "This account cannot access the configured gateway",

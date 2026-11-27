@@ -649,6 +649,53 @@ async def test_bsb_command_read_preserves_retry_after_without_retry(monkeypatch)
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "pasted",
+    [
+        "demo-gateway?NAVMENUITEM=1&BREADCRUMBPATH=0",
+        "https://dashboard.example.invalid/R2/Plant/Index/demo-gateway?NAVMENUITEM=1",
+    ],
+)
+async def test_pasted_gateway_id_keeps_all_request_paths_and_queries_intact(caplog, pasted) -> None:
+    session = FakeSession(
+        [
+            *login_responses(),
+            FakeResponse(json_data={"ok": True, "data": [{"address": "5834029"}]}),
+            FakeResponse(json_data={"ok": True, "data": {"items": []}}),
+            FakeResponse(json_data={"ok": True, "data": {}}),
+            FakeResponse(json_data={"ok": True, "data": []}),
+            FakeResponse(json_data={"ok": True, "data": [{"gwId": " demo-gateway "}]}),
+        ]
+    )
+    client = ElcoApiClient(
+        session,
+        "synthetic",
+        "synthetic",
+        pasted,
+        "https://example.invalid",
+    )
+    with caplog.at_level("DEBUG", logger=api_module.__name__):
+        assert await client.async_get_bsb_points(("5834029",)) == {
+            "5834029": {"address": "5834029"}
+        }
+        await client.async_get_system_items({}, [1])
+        await client.async_get_plant_user_data()
+        await client.async_get_bus_errors()
+        assert (await client.async_get_plant_metadata())["gwId"] == " demo-gateway "
+
+    points, system, user, errors, _ = (URL(url) for _, url, _ in session.calls[2:])
+    assert all(URL(url).host == "example.invalid" for _, url, _ in session.calls)
+    assert points.path == "/R2/PlantMenuBsb/ReadDataPoints/DEMO-GATEWAY"
+    assert dict(points.query) == {"addresses": "5834029"}
+    assert system.path == "/api/v2/remote/dataItems/DEMO-GATEWAY/get"
+    assert dict(system.query) == {"umsys": "si"}
+    assert dict(user.query) == {"id": "DEMO-GATEWAY"}
+    assert errors.query["gatewayId"] == "DEMO-GATEWAY"
+    assert "<gateway>" in caplog.text
+    assert "DEMO-GATEWAY" not in caplog.text
+    assert "BREADCRUMBPATH" not in caplog.text
+
+
 async def test_plant_metadata_matches_gateway_id_or_serial() -> None:
     plants = [
         {
