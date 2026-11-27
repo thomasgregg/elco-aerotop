@@ -417,6 +417,18 @@ If you're looking for EM20 sensors, check `data.discovery.features.hasEm20` in a
 diagnostic. A Galevo gateway must report `true` and return a usable value before each new
 EM20-only sensor appears. See the [EM20 entity IDs and availability rules](docs/entities.md#galevo-heat-pump-status-with-em20).
 
+### The gateway is online, but Remocon shows only outdoor temperature
+
+Open the same plant in the Remocon app and web portal. If both are missing heating or
+hot-water readings, compare them with the values shown on your local controller. On a
+Remocon NET B, check both the `WEB` and `BUS` LEDs. The gateway reports internet connectivity
+and communication with the BSB controller separately.
+
+For a GitHub issue, include the LED states, which readings are present on the controller,
+and an inspected, redacted [Home Assistant diagnostic](docs/discovery.md#contributing-a-gateway-fixture).
+If a read fails, include the relevant [debug log lines](#enable-debug-logging) with gateway
+identifiers removed.
+
 ### A write is rejected or does not remain set
 
 - Check the comfort and reduced targets. Heating comfort must be at or above reduced, while
@@ -449,16 +461,22 @@ The integration supports Remocon.net gateways with BSB or Galevo controllers. Ch
 controller family because installations with the same Aerotop model name can use different
 controllers. The gateway's reported capabilities determine the available features.
 
-| Supported controller | Typical Remocon plant URL |
-|---|---|
-| BSB (`systemType: 5`) | `/R2/BsbPlantDashboard/Index/` |
-| Galevo (`systemType: 3`) | `/R2/Plant/Index/` |
+The integration selects the read protocol from `data.plant.systemType` in Remocon's
+`Features` response. In Home Assistant diagnostics, look for `data.discovery.system_type`.
 
-Compatibility is determined by the controller family reported by Remocon. Supported features
-can vary with gateway firmware, connected probes, and installed options.
+| Supported controller | `systemType` |
+|---|---|
+| BSB | `5` |
+| Galevo | `3` |
+
+Remocon's browser dashboard routes are separate from these JSON reads. Use the reported
+`systemType` to identify the integration's controller family, even if the portal opens
+`/R2/Plant/Index/` or a manually entered `/R2/BsbPlantDashboard/Index/` URL returns 404.
+Supported features can vary with gateway firmware, connected probes, and installed options.
+See the [Remocon read protocol](docs/protocol.md#reading-state).
 
 When reporting a working or non-working model, include the exact Aerotop model, gateway type,
-controller family or plant URL shape, firmware version if known, number of heating zones, and which
+reported `systemType` if available, firmware version if known, number of heating zones, and which
 entities were returned. Do not post credentials, gateway IDs, serial numbers, authentication
 tokens, cookies, or unredacted payloads.
 
